@@ -116,13 +116,34 @@ docker-compose up
 ```
 - O script `recomendador.py` será executado automaticamente dentro do container.
 - Ele gera `submission.csv` e inicia a API em `http://localhost:8000`.
+- O volume `.:/app` monta todos os arquivos do projeto (código, dados, estáticos), e o parâmetro `--reload` no Uvicorn permite que alterações em `recomendador.py` sejam aplicadas sem rebuild; para mudanças em `static/index.html`, basta atualizar a página no navegador.
 
 ### 6. Teste a API
-Com o container rodando, teste a API com um comando curl:
+Com o container rodando, você pode testar a API de algumas formas:
+
+#### Usando Swagger UI
+Acesse a interface Swagger em `http://localhost:8000/docs` para testar a API interativamente:
+1. Abra `http://localhost:8000/docs` no navegador.
+2. Clique em `POST /predict`.
+3. Clique em "Try it out".
+4. Insira um `user_id` (ex.: `e25fbee3a42d45a2914f9b061df3386b2ded2d8cc1f3d4b901419051126488b9`) e clique em "Execute".
+
+#### Usando o Microsite
+Acesse o microsite em `http://localhost:8000/`, insira um `user_id` e clique em "Obter Recomendações" para ver as predições em uma interface simples.
+
+#### Usando Curl
+Teste via terminal:
 ```bash
-curl "http://localhost:8000/predict?user_id=e25fbee3a42d45a2914f9b061df3386b2ded2d8cc1f3d4b901419051126488b9"
+curl -X POST "http://localhost:8000/predict" -H "Content-Type: application/json" -d '{"user_id": "e25fbee3a42d45a2914f9b061df3386b2ded2d8cc1f3d4b901419051126488b9"}'
 ```
 Você verá uma resposta JSON com recomendações.
+
+#### Depuração
+Se a API travar, verifique os logs com:
+```bash
+docker-compose logs
+```
+Os logs mostram o progresso do pré-processamento e das requisições, ajudando a identificar problemas.
 
 ### 7. Pare o Serviço
 Para parar o container:

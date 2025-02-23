@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Recomendador G1 - Microsite</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #result { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Recomendador G1</h1>
+    <label for="userId">ID do Usuário:</label>
+    <input type="text" id="userId" placeholder="Digite o user_id">
+    <button onclick="getRecommendations()">Obter Recomendações</button>
+    <div id="result"></div>
+
+    <script>
+        async function getRecommendations() {
+            const userId = document.getElementById('userId').value;
+            const response = await fetch('http://localhost:8000/predict', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId })
+            });
+            const data = await response.json();
+            const resultDiv = document.getElementById('result');
+            if (data.acessos_futuros) {
+                resultDiv.innerHTML = '<h2>Recomendações:</h2><ul>' +
+                    data.acessos_futuros.map(item => `<li>${item}</li>`).join('') +
+                    '</ul>';
+            } else {
+                resultDiv.innerHTML = '<p>Erro ao obter recomendações.</p>';
+            }
+        }
+    </script>
+</body>
+</html>

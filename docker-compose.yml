@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   recomendador:
     build:
@@ -11,9 +9,13 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
-      - ./data/files/treino:/app/data/files/treino
-      - ./data/itens/itens:/app/data/itens/itens
-      - ./data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
-    command: uvicorn recomendador:app --host 0.0.0.0 --port 8000
+    command: uvicorn src.app:app --host 0.0.0.0 --port 8000 --reload
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
