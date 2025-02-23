@@ -9,3 +9,4 @@ uvicorn
 joblib
 requests
 pydantic
+psycopg2-binary

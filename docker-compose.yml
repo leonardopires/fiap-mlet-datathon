@@ -19,3 +19,35 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+    depends_on:
+      - postgres
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    image: recomendador-frontend:latest
+    container_name: recomendador-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm start
+    depends_on:
+      - recomendador
+
+  postgres:
+    image: postgres:15
+    container_name: recomendador-postgres
+    environment:
+      POSTGRES_USER: recomendador
+      POSTGRES_PASSWORD: senha123
+      POSTGRES_DB: recomendador_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres-data:

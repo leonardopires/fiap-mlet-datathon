@@ -1,4 +1,5 @@
-# Configura o ambiente e instala as dependencias
+# install.ps1
+# Configura o ambiente e instala as dependências
 
 # Função para verificar se um comando está disponível
 function Test-CommandExists {
@@ -30,7 +31,7 @@ if (-not (Test-Path $venvPath)) {
 # 3. Ativa o ambiente virtual
 Write-Host "Ativando ambiente virtual..."
 & "$venvPath\Scripts\Activate.ps1"
-if ($env:VIRTUAL_ENV -eq $null) {
+if ($null -eq $env:VIRTUAL_ENV) {  # Corrigido: $null no lado esquerdo
     Write-Host "Erro ao ativar o ambiente virtual. Verifique o caminho $venvPath."
     exit 1
 } else {
@@ -60,6 +61,23 @@ if (-not (Test-Path $dataDir)) {
     }
 } else {
     Write-Host "Pasta $dataDir já existe. Pulando o download."
+}
+
+# 6. Gera validacao_kaggle.csv
+$validacaoKaggle = "data/validacao_kaggle.csv"
+if (-not (Test-Path $validacaoKaggle)) {
+    Write-Host "Gerando $validacaoKaggle com data/convert_kaggle.py..."
+    # Muda para o diretório data e executa
+    Push-Location $dataDir
+    python convert_kaggle.py
+    $exitCode = $LASTEXITCODE
+    Pop-Location
+    if (($null -ne $exitCode -and $exitCode -ne 0) -or -not (Test-Path $validacaoKaggle)) {
+        Write-Host "Erro ao gerar $validacaoKaggle. Verifique data/convert_kaggle.py e se data/validacao.csv existe."
+        exit 1
+    } else {
+        Write-Host "Arquivo $validacaoKaggle gerado com sucesso."
+    }
 }
 
 Write-Host "Configuração concluída! Para construir e rodar o Docker Compose, execute:"

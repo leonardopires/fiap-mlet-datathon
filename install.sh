@@ -62,6 +62,23 @@ else
     echo "Pasta $DATA_DIR já existe. Pulando o download."
 fi
 
+# 6. Gera validacao_kaggle.csv
+VALIDACAO_KAGGLE="data/validacao_kaggle.csv"
+if [ ! -f "$VALIDACAO_KAGGLE" ]; then
+    echo "Gerando $VALIDACAO_KAGGLE com data/convert_kaggle.py..."
+    # Muda para o diretório data e executa
+    cd "$DATA_DIR"
+    python convert_kaggle.py
+    EXIT_CODE=$?
+    cd ..
+    if [ "$EXIT_CODE" -ne 0 ] || [ ! -f "$VALIDACAO_KAGGLE" ]; then
+        echo "Erro ao gerar $VALIDACAO_KAGGLE. Verifique data/convert_kaggle.py e se data/validacao.csv existe."
+        exit 1
+    else
+        echo "Arquivo $VALIDACAO_KAGGLE gerado com sucesso."
+    fi
+fi
+
 echo "Configuração concluída! Para construir e rodar o Docker Compose, execute:"
 echo "docker-compose build"
 echo "docker-compose up"
