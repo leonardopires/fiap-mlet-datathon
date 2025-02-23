@@ -1,0 +1,25 @@
+# Ambiente Virtual
+.venv/
+venv/
+env/
+*.venv
+
+# PyCharm
+.idea/
+*.iml
+
+# Pasta de Dados Baixados
+data/
+data.zip
+
+# Arquivos Temporários e de Cache
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+*.log
+
+# Arquivos Gerados
+submission.csv
+regressor.pkl
