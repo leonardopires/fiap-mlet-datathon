@@ -4,6 +4,7 @@ from sklearn.linear_model import Ridge
 import joblib
 import numpy as np
 import time
+import os  # Adicionado para manipulação de caminhos
 
 # Configura o logger para mensagens detalhadas
 logger = logging.getLogger(__name__)
@@ -63,10 +64,13 @@ class Trainer:
             train_elapsed = time.time() - model_start
             logger.info(f"Modelo Ridge treinado em {train_elapsed:.2f} segundos")
 
-            # Salva o modelo treinado no disco
+            # Salva o modelo treinado no disco, na pasta data/cache
+            cache_dir = 'data/cache'
+            os.makedirs(cache_dir, exist_ok=True)  # Cria o diretório se não existir
+            model_path = os.path.join(cache_dir, 'regressor.pkl')
             save_start = time.time()
-            logger.info("Salvando modelo treinado em regressor.pkl")
-            joblib.dump(regressor, 'regressor.pkl')
+            logger.info(f"Salvando modelo treinado em {model_path}")
+            joblib.dump(regressor, model_path)
             save_elapsed = time.time() - save_start
             total_elapsed = time.time() - train_start_time
             logger.info(f"Modelo salvo em {save_elapsed:.2f} segundos. Treinamento total concluído em {total_elapsed:.2f} segundos")

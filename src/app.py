@@ -11,6 +11,9 @@ from src.trainer import Trainer
 from src.predictor import Predictor
 from typing import Optional, Any
 import time
+import pandas as pd
+import h5py
+import joblib
 
 # Configura o logger para mensagens detalhadas
 logger = logging.getLogger(__name__)
@@ -66,6 +69,64 @@ class TrainRequest(BaseModel):
     force_reprocess: Optional[bool] = False
 
 
+class PredictionResponse(BaseModel):  # Novo modelo para a resposta
+    """
+    Modelo Pydantic para respostas de predição.
+    """
+    user_id: str
+    acessos_futuros: list[dict]  # Lista de dicionários
+
+
+def load_persisted_data() -> bool:
+    """
+    Carrega dados persistentes do pré-processamento e treinamento, se disponíveis.
+
+    Returns:
+        bool: True se todos os dados foram carregados com sucesso, False caso contrário.
+    """
+    global INTERACOES, NOTICIAS, USER_PROFILES, REGRESSOR, PREDICTOR
+    cache_dir = 'data/cache'
+    interacoes_file = os.path.join(cache_dir, 'interacoes.h5')
+    noticias_file = os.path.join(cache_dir, 'noticias.h5')
+    user_profiles_file = os.path.join(cache_dir, 'user_profiles_final.h5')
+    regressor_file = os.path.join(cache_dir, 'regressor.pkl')
+
+    try:
+        # Verifica se todos os arquivos existem
+        if not all(os.path.exists(f) for f in [interacoes_file, noticias_file, user_profiles_file, regressor_file]):
+            logger.info("Arquivos persistentes incompletos. Necessário reprocessar.")
+            return False
+
+        # Carrega INTERACOES
+        logger.info(f"Carregando INTERACOES de {interacoes_file}")
+        INTERACOES = pd.read_hdf(interacoes_file, key='interacoes')
+
+        # Carrega NOTICIAS
+        logger.info(f"Carregando NOTICIAS de {noticias_file}")
+        NOTICIAS = pd.read_hdf(noticias_file, key='noticias')
+
+        # Carrega USER_PROFILES
+        logger.info(f"Carregando USER_PROFILES de {user_profiles_file}")
+        with h5py.File(user_profiles_file, 'r') as f:
+            embeddings = f['embeddings'][:]
+            user_ids = f['user_ids'][:].astype(str)
+            USER_PROFILES = dict(zip(user_ids, embeddings))
+
+        # Carrega REGRESSOR
+        logger.info(f"Carregando REGRESSOR de {regressor_file}")
+        REGRESSOR = joblib.load(regressor_file)
+
+        # Inicializa PREDICTOR com os dados carregados
+        logger.info("Inicializando PREDICTOR com dados carregados")
+        PREDICTOR = Predictor(INTERACOES, NOTICIAS, USER_PROFILES, REGRESSOR)
+
+        logger.info("Dados persistentes carregados com sucesso")
+        return True
+    except Exception as e:
+        logger.error(f"Erro ao carregar dados persistentes: {e}")
+        return False
+
+
 def initialize_data(subsample_frac: Optional[float] = None, force_reprocess: Optional[bool] = False):
     """
     Inicializa os dados globais, carregando ou processando interações e notícias.
@@ -79,7 +140,11 @@ def initialize_data(subsample_frac: Optional[float] = None, force_reprocess: Opt
     logger.info("Verificando necessidade de inicialização dos dados globais")
     processed_flag_path = 'data/cache/processed_flag.txt'
 
-    if force_reprocess or not os.path.exists(processed_flag_path):
+    # Tenta carregar dados persistentes, a menos que force_reprocess seja True
+    if not force_reprocess and load_persisted_data():
+        logger.info("Dados carregados de arquivos persistentes. Pulando reprocessamento.")
+    else:
+        # Se chegou aqui, precisa reprocessar
         logger.info("Dados precisam ser inicializados ou reprocessados")
         # Verifica a existência do arquivo de validação básico
         if not os.path.exists('data/validacao.csv'):
@@ -108,15 +173,14 @@ def initialize_data(subsample_frac: Optional[float] = None, force_reprocess: Opt
         )
         preprocess_elapsed = time.time() - preprocess_start
         logger.info(f"Pré-processamento concluído em {preprocess_elapsed:.2f} segundos")
-    else:
-        logger.info("Dados globais já inicializados, pulando inicialização")
+
+        # Marca como processado apenas se não for forçado a reprocessar
+        if not force_reprocess or not os.path.exists(processed_flag_path):
+            with open(processed_flag_path, 'w') as f:
+                f.write('Data has been processed')
 
     total_elapsed = time.time() - init_start_time
     logger.info(f"Inicialização dos dados concluída em {total_elapsed:.2f} segundos")
-    # creates flag file to indicate that data has been processed
-    with open(processed_flag_path, 'w') as f:
-        f.write('Data has been processed')
-
 
 
 @app.get("/")
@@ -195,7 +259,7 @@ async def train_model_endpoint(request: TrainRequest = None):
     raise HTTPException(status_code=500, detail="Falha no treinamento: dados insuficientes")
 
 
-@app.post("/predict", response_model=dict)
+@app.post("/predict", response_model=PredictionResponse)
 async def get_prediction(request: UserRequest):
     """
     Endpoint para gerar predições de notícias para um usuário.
@@ -204,17 +268,15 @@ async def get_prediction(request: UserRequest):
         request (UserRequest): Requisição contendo o user_id.
 
     Returns:
-        dict: Resposta com user_id e lista de acessos futuros recomendados.
+        PredictionResponse: Resposta com user_id e lista de acessos futuros recomendados.
     """
     predict_start_time = time.time()
     logger.info(f"Requisição de predição recebida para user_id: {request.user_id}")
 
-    # Verifica se o modelo foi treinado
     if PREDICTOR is None:
         logger.warning("Modelo não treinado detectado ao tentar predizer")
         raise HTTPException(status_code=400, detail="Modelo não treinado. Use o endpoint /train")
 
-    # Gera as predições usando o Predictor
     predict_time = time.time()
     predictions = PREDICTOR.predict(request.user_id)
     predict_elapsed = time.time() - predict_time

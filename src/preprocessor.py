@@ -112,25 +112,28 @@ class Preprocessor:
         start_time = time.time()
         logger.info(f"Iniciando carregamento de perfis de usuário do cache em {cache_file}")
         user_profiles = {}
-        # Abre o arquivo HDF5 em modo leitura
         with h5py.File(cache_file, 'r') as f:
-            # Itera sobre todas as chaves (user_ids) no arquivo
-            for user_id in f.keys():
-                # Carrega o embedding correspondente ao user_id
-                user_profiles[user_id] = f[user_id][:]
-                if len(user_profiles) % 1000 == 0:
-                    logger.debug(f"Carregados {len(user_profiles)} perfis do chunk até agora")
+            if 'embeddings' in f and 'user_ids' in f:  # Nova estrutura
+                embeddings = f['embeddings'][:]
+                user_ids = f['user_ids'][:].astype(str)
+                user_profiles = dict(zip(user_ids, embeddings))
+                logger.debug(f"Carregados {len(user_profiles)} perfis na nova estrutura")
+            else:  # Estrutura antiga (compatibilidade)
+                for user_id in f.keys():
+                    user_profiles[user_id] = f[user_id][:]
+                    if len(user_profiles) % 1000 == 0:
+                        logger.debug(f"Carregados {len(user_profiles)} perfis do chunk até agora (estrutura antiga)")
         elapsed = time.time() - start_time
         logger.info(f"Carregados {len(user_profiles)} perfis de usuário de {cache_file} em {elapsed:.2f} segundos")
         return user_profiles
 
-    def _process_interactions_chunk(self, args: Tuple[pd.DataFrame, Dict[str, np.ndarray], int]) -> Dict[
+    def _process_interactions_chunk(self, args: Tuple[pd.DataFrame, Dict[str, torch.Tensor], int]) -> Dict[
         str, np.ndarray]:
         """
         Processa um chunk de interações para gerar perfis de usuário, com logs detalhados e medição de tempo.
 
         Args:
-            args (Tuple): Contém o chunk do DataFrame de interações, lookup de embeddings por page e índice do chunk.
+            args (Tuple): Contém o chunk do DataFrame de interações, lookup de embeddings por page (tensores na GPU) e índice do chunk.
 
         Returns:
             Dict[str, np.ndarray]: Perfis de usuário gerados ou carregados do cache (user_id -> embedding médio ponderado).
@@ -146,14 +149,6 @@ class Preprocessor:
         chunk_start_time = time.time()
         logger.info(f"Iniciando processamento do chunk {chunk_idx} com {len(chunk)} interações")
 
-        # Define o dispositivo para o processo atual e carrega o modelo SentenceTransformer
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        logger.debug(f"Configurando dispositivo para o chunk {chunk_idx}: {device}")
-        model_start_time = time.time()
-        model = SentenceTransformer(self.model_name).to(device)
-        model_elapsed = time.time() - model_start_time
-        logger.info(f"Modelo SentenceTransformer carregado para o chunk {chunk_idx} em {model_elapsed:.2f} segundos")
-
         user_profiles = {}
         total_chunk = len(chunk)
 
@@ -163,6 +158,16 @@ class Preprocessor:
                 elapsed_so_far = time.time() - chunk_start_time
                 logger.info(
                     f"Processados {i}/{total_chunk} registros no chunk {chunk_idx} em {elapsed_so_far:.2f} segundos")
+                # Adiciona informações de recursos do sistema a cada 50 iterações
+                cpu_percent = psutil.cpu_percent(interval=1)
+                mem = psutil.virtual_memory()
+                disk = psutil.disk_usage(self.cache_dir)
+                logger.info(
+                    f"Estado dos recursos no chunk {chunk_idx} após {i} registros: "
+                    f"CPU: {cpu_percent:.1f}%, "
+                    f"Memória: {mem.percent:.1f}% usada ({mem.available / (1024 ** 3):.2f} GB livre), "
+                    f"Disco em {self.cache_dir}: {disk.percent:.1f}% usado ({disk.free / (1024 ** 3):.2f} GB livre)"
+                )
 
             user_id = row['userId']
             # Divide as strings de histórico em listas para processamento
@@ -179,7 +184,7 @@ class Preprocessor:
             # Itera sobre o histórico do usuário para calcular embeddings ponderados
             for h, c, t, s, ts in zip(hist, clicks, times, scrolls, timestamps):
                 if h in page_to_embedding:
-                    # Obtém o embedding da página a partir do lookup
+                    # Obtém o embedding da página a partir do lookup (já é um tensor na GPU)
                     emb = page_to_embedding[h]
                     # Calcula engajamento e recência para o peso
                     eng = self.calculate_engagement(c, t, s)
@@ -188,8 +193,13 @@ class Preprocessor:
                     weights.append(eng * rec)
 
             if embeddings:
-                # Calcula a média ponderada dos embeddings para o perfil do usuário
-                user_profiles[user_id] = np.average(embeddings, axis=0, weights=weights)
+                # Converte para tensores e calcula média ponderada na GPU
+                embeddings_tensor = torch.stack(embeddings)  # Empilha em tensor [n, dim]
+                weights_tensor = torch.tensor(weights, device=self.device, dtype=torch.float32)
+                weighted_sum = torch.sum(embeddings_tensor * weights_tensor.unsqueeze(1), dim=0)
+                total_weight = torch.sum(weights_tensor)
+                user_profiles[user_id] = (
+                            weighted_sum / total_weight).cpu().numpy()  # Move para CPU e converte para NumPy
                 if len(user_profiles) % 1000 == 0:
                     logger.debug(f"Gerados {len(user_profiles)} perfis no chunk {chunk_idx} até agora")
 
@@ -279,10 +289,11 @@ class Preprocessor:
             logger.info(
                 f"Embeddings gerados para {len(noticias)} notícias em {total_batches} batches em {total_elapsed:.2f} segundos (salvamento: {save_elapsed:.2f} segundos)")
 
-        # Cria o lookup de embeddings por página
+        # Cria o lookup de embeddings por página como tensores na GPU
         lookup_start_time = time.time()
-        logger.info("Criando lookup de embeddings por page para acesso rápido")
-        page_to_embedding = dict(zip(noticias['page'], noticias['embedding']))
+        logger.info("Criando lookup de embeddings por page para acesso rápido na GPU")
+        page_to_embedding = {page: torch.tensor(emb, device=self.device, dtype=torch.float32)
+                             for page, emb in zip(noticias['page'], noticias['embedding'])}
         elapsed = time.time() - lookup_start_time
         logger.info(f"Lookup criado com {len(page_to_embedding)} entradas em {elapsed:.2f} segundos")
 
@@ -320,18 +331,48 @@ class Preprocessor:
         elapsed = time.time() - combine_start_time
         logger.info(f"Resultados combinados: {len(user_profiles)} perfis de usuário em {elapsed:.2f} segundos")
 
-        # Salva os perfis finais no cache
+        # Salva os perfis finais no cache de forma eficiente com monitoramento de recursos
         final_cache = os.path.join(self.cache_dir, 'user_profiles_final.h5')
         save_start_time = time.time()
         logger.info(f"Salvando {len(user_profiles)} perfis finais em {final_cache}")
+
+        # Prepara os dados como arrays para salvamento eficiente
+        user_ids = list(user_profiles.keys())
+        embeddings = np.array(list(user_profiles.values()))  # Converte para matriz numpy
+
         with h5py.File(final_cache, 'w') as f:
-            for user_id, embedding in user_profiles.items():
-                f.create_dataset(user_id, data=embedding, compression="gzip", compression_opts=4)
-                if len(f) % 10000 == 0:
-                    logger.debug(f"Salvando perfil {len(f)}/{len(user_profiles)} no arquivo final")
+            # Salva os embeddings em um único dataset
+            f.create_dataset('embeddings', data=embeddings, compression="gzip", compression_opts=4)
+            # Salva os user_ids como strings em outro dataset
+            dt = h5py.string_dtype(encoding='utf-8')
+            f.create_dataset('user_ids', data=np.array(user_ids, dtype=object), dtype=dt)
+
+            # Log de progresso com recursos do sistema
+            processed_count = len(user_ids)
+            logger.debug(f"Salvou {processed_count} perfis como matriz única")
+            # Adiciona informações de recursos do sistema
+            cpu_percent = psutil.cpu_percent(interval=1)
+            mem = psutil.virtual_memory()
+            disk = psutil.disk_usage(self.cache_dir)
+            logger.info(
+                f"Estado dos recursos após salvar {processed_count} perfis: "
+                f"CPU: {cpu_percent:.1f}%, "
+                f"Memória: {mem.percent:.1f}% usada ({mem.available / (1024 ** 3):.2f} GB livre), "
+                f"Disco em {self.cache_dir}: {disk.percent:.1f}% usado ({disk.free / (1024 ** 3):.2f} GB livre)"
+            )
+
         save_elapsed = time.time() - save_start_time
         total_elapsed = time.time() - total_start_time
         logger.info(f"Perfis finais salvos em {save_elapsed:.2f} segundos")
+
+        # Persistir INTERACOES e NOTICIAS
+        interacoes_cache = os.path.join(self.cache_dir, 'interacoes.h5')
+        noticias_cache = os.path.join(self.cache_dir, 'noticias.h5')
+        logger.info(f"Salvando INTERACOES em {interacoes_cache}")
+        interacoes.to_hdf(interacoes_cache, key='interacoes', mode='w', complevel=4, complib='blosc')
+        logger.info(f"Salvando NOTICIAS em {noticias_cache}")
+        noticias.to_hdf(noticias_cache, key='noticias', mode='w', complevel=4, complib='blosc')
+
         logger.info(
             f"Pré-processamento concluído: {len(user_profiles)} perfis gerados em {total_elapsed:.2f} segundos (tempo total)")
         return interacoes, noticias, user_profiles

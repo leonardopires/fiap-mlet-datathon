@@ -2,25 +2,29 @@ import React, { useState } from 'react';
 import { Container, Tabs, Tab, Form, Button, Card, Alert } from 'react-bootstrap';
 import axios from 'axios';
 
+interface Recommendation {
+  page: string;
+  title: string;
+  link: string;
+}
+
 const App: React.FC = () => {
   const [userId, setUserId] = useState<string>('');
-  const [recommendations, setRecommendations] = useState<string[]>([]);
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
-  const [subsampleFrac, setSubsampleFrac] = useState<string>(''); // Novo estado para subsample_frac
-  const [trainStatus, setTrainStatus] = useState<string>(''); // Estado para feedback do treinamento
+  const [subsampleFrac, setSubsampleFrac] = useState<string>('');
+  const [trainStatus, setTrainStatus] = useState<string>('');
 
-  // Função para obter recomendações
   const fetchRecommendations = async () => {
     try {
       const response = await axios.post('http://localhost:8000/predict', { user_id: userId });
       setRecommendations(response.data.acessos_futuros);
     } catch (error) {
       console.error('Erro ao obter recomendações:', error);
-      setRecommendations(['Erro ao carregar recomendações']);
+      setRecommendations([{ page: 'Erro', title: 'Erro ao carregar recomendações', link: 'N/A' }]);
     }
   };
 
-  // Função para iniciar o treinamento com subsample_frac opcional
   const startTraining = async () => {
     try {
       const payload: { subsample_frac?: number; force_reprocess?: boolean } = {};
@@ -33,7 +37,6 @@ const App: React.FC = () => {
           return;
         }
       }
-      // Adicione force_reprocess se quiser suportar isso na UI também
       const response = await axios.post('http://localhost:8000/train', payload);
       setTrainStatus(response.data.message);
     } catch (error) {
@@ -42,7 +45,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Função fictícia para obter logs (atualize com endpoint real se disponível)
   const fetchLogs = () => {
     setLogs(['Log 1: Iniciando...', 'Log 2: Treinamento em andamento...']);
   };
@@ -51,7 +53,6 @@ const App: React.FC = () => {
     <Container className="mt-4">
       <h1>Recomendador G1</h1>
       <Tabs defaultActiveKey="recommendations" id="main-tabs" className="mb-3">
-        {/* Tab de Recomendações */}
         <Tab eventKey="recommendations" title="Recomendações">
           <Form>
             <Form.Group controlId="userId" className="mb-3">
@@ -72,11 +73,21 @@ const App: React.FC = () => {
             {recommendations.length > 0 ? (
               <div className="row">
                 {recommendations.map((rec, index) => (
-                  <div className="col-md-4 mb-3" key={index}>
+                  <div className="col-md-4 mb-3" key={rec.page}>
                     <Card>
                       <Card.Body>
-                        <Card.Title>Notícia {index + 1}</Card.Title>
-                        <Card.Text>{rec}</Card.Text>
+                        <Card.Title>{rec.title}</Card.Title>
+                        <Card.Text>
+                          <strong>ID:</strong> {rec.page}<br />
+                          <strong>Link:</strong>{' '}
+                          {rec.link !== 'N/A' ? (
+                            <a href={rec.link} target="_blank" rel="noopener noreferrer">
+                              {rec.link}
+                            </a>
+                          ) : (
+                            'Não disponível'
+                          )}
+                        </Card.Text>
                       </Card.Body>
                     </Card>
                   </div>
@@ -88,7 +99,6 @@ const App: React.FC = () => {
           </div>
         </Tab>
 
-        {/* Tab de Gerenciamento */}
         <Tab eventKey="management" title="Gerenciamento">
           <Form>
             <Form.Group controlId="subsampleFrac" className="mb-3">
