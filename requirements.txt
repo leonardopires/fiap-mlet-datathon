@@ -10,3 +10,5 @@ joblib
 requests
 pydantic
 psycopg2-binary
+h5py
+psutil

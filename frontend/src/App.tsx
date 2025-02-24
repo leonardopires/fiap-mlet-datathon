@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { Container, Tabs, Tab, Form, Button, Card } from 'react-bootstrap';
+import { Container, Tabs, Tab, Form, Button, Card, Alert } from 'react-bootstrap';
 import axios from 'axios';
 
 const App: React.FC = () => {
   const [userId, setUserId] = useState<string>('');
   const [recommendations, setRecommendations] = useState<string[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
+  const [subsampleFrac, setSubsampleFrac] = useState<string>(''); // Novo estado para subsample_frac
+  const [trainStatus, setTrainStatus] = useState<string>(''); // Estado para feedback do treinamento
 
   // Função para obter recomendações
   const fetchRecommendations = async () => {
@@ -18,20 +20,31 @@ const App: React.FC = () => {
     }
   };
 
-  // Função para iniciar o treinamento
+  // Função para iniciar o treinamento com subsample_frac opcional
   const startTraining = async () => {
     try {
-      const response = await axios.post('http://localhost:8000/train');
-      alert(response.data.message);
+      const payload: { subsample_frac?: number; force_reprocess?: boolean } = {};
+      if (subsampleFrac) {
+        const frac = parseFloat(subsampleFrac);
+        if (frac > 0 && frac <= 1) {
+          payload.subsample_frac = frac;
+        } else {
+          setTrainStatus('Erro: subsample_frac deve estar entre 0 e 1.');
+          return;
+        }
+      }
+      // Adicione force_reprocess se quiser suportar isso na UI também
+      const response = await axios.post('http://localhost:8000/train', payload);
+      setTrainStatus(response.data.message);
     } catch (error) {
       console.error('Erro ao iniciar treinamento:', error);
-      alert('Erro ao iniciar treinamento');
+      setTrainStatus('Erro ao iniciar treinamento.');
     }
   };
 
-  // Stub pra criaçào da função pra obter os logs.
+  // Função fictícia para obter logs (atualize com endpoint real se disponível)
   const fetchLogs = () => {
-    setLogs(['Log 1: Iniciando...', 'Log 2: Treinamento em andamento...']); // Placeholder
+    setLogs(['Log 1: Iniciando...', 'Log 2: Treinamento em andamento...']);
   };
 
   return (
@@ -77,12 +90,31 @@ const App: React.FC = () => {
 
         {/* Tab de Gerenciamento */}
         <Tab eventKey="management" title="Gerenciamento">
-          <Button variant="success" onClick={startTraining} className="mb-3">
-            Iniciar Treinamento
-          </Button>
-          <Button variant="info" href="http://localhost:8000/docs" target="_blank" className="mb-3 ms-2">
-            Abrir Swagger UI
-          </Button>
+          <Form>
+            <Form.Group controlId="subsampleFrac" className="mb-3">
+              <Form.Label>Fração de Subamostragem (0 a 1, opcional)</Form.Label>
+              <Form.Control
+                type="number"
+                step="0.1"
+                min="0"
+                max="1"
+                placeholder="Ex.: 0.1 para 10% dos dados"
+                value={subsampleFrac}
+                onChange={(e) => setSubsampleFrac(e.target.value)}
+              />
+            </Form.Group>
+            <Button variant="success" onClick={startTraining} className="mb-3">
+              Iniciar Treinamento
+            </Button>
+            <Button variant="info" href="http://localhost:8000/docs" target="_blank" className="mb-3 ms-2">
+              Abrir Swagger UI
+            </Button>
+            {trainStatus && (
+              <Alert variant={trainStatus.includes('Erro') ? 'danger' : 'success'} className="mt-3">
+                {trainStatus}
+              </Alert>
+            )}
+          </Form>
           <h3>Logs do Servidor</h3>
           <Button variant="secondary" onClick={fetchLogs} className="mb-3">
             Atualizar Logs
