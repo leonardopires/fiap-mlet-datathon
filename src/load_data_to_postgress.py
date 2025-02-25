@@ -42,3 +42,5 @@ def load_data_to_postgres():
     conn.commit()
     cur.close()
     conn.close()
+
+print("Script executado com sucesso!")
