@@ -1,44 +1,39 @@
 import logging
+from typing import Optional, List
+
 from fastapi import HTTPException
 from src.trainer import Trainer
 from src.predictor import Predictor
 from .state_manager import StateManager
 import time
+import joblib
+import os
 
 logger = logging.getLogger(__name__)
 
 
 class ModelManager:
-    """
-    Cuida do treinamento do modelo que faz recomendações e das predições para os usuários.
-    """
-
     def __init__(self, trainer: Trainer, predictor_class: type):
-        """
-        Configura o gerenciador do modelo.
-
-        Args:
-            trainer: Ferramenta para treinar o modelo.
-            predictor_class: Tipo da classe que faz recomendações.
-        """
         self.trainer = trainer
         self.predictor_class = predictor_class
+        self.cache_dir = 'data/cache'
+        os.makedirs(self.cache_dir, exist_ok=True)
 
-    def train_model(self, state: StateManager, validation_file: str) -> None:
-        """
-        Treina o modelo com os dados preparados.
+    def train_model(self, state: StateManager, validation_file: str, force_retrain: bool = False) -> None:
+        regressor_file = os.path.join(self.cache_dir, 'regressor.pkl')
+        if not force_retrain and os.path.exists(regressor_file):
+            logger.info("Modelo treinado encontrado em regressor.pkl; carregando modelo existente")
+            state.REGRESSOR = joblib.load(regressor_file)
+            state.PREDICTOR = self.predictor_class(state.INTERACOES, state.NOTICIAS, state.USER_PROFILES,
+                                                   state.REGRESSOR)
+            return
 
-        Args:
-            state: Onde os dados e o modelo são guardados.
-            validation_file: Arquivo usado para testar o modelo.
-        """
         start_time = time.time()
         logger.info("Iniciando treinamento do modelo")
-
-        # Treina o modelo com os dados de interações, notícias e perfis
         state.REGRESSOR = self.trainer.train(state.INTERACOES, state.NOTICIAS, state.USER_PROFILES, validation_file)
         if state.REGRESSOR:
-            # Se o treinamento deu certo, cria o sistema de recomendações
+            joblib.dump(state.REGRESSOR, regressor_file)
+            logger.info(f"Modelo treinado salvo em {regressor_file}")
             state.PREDICTOR = self.predictor_class(state.INTERACOES, state.NOTICIAS, state.USER_PROFILES,
                                                    state.REGRESSOR)
             elapsed = time.time() - start_time
@@ -46,24 +41,20 @@ class ModelManager:
         else:
             raise HTTPException(status_code=500, detail="Falha no treinamento: dados insuficientes")
 
-    def predict(self, state: StateManager, user_id: str) -> list[dict]:
-        """
-        Faz recomendações de notícias para um usuário.
-
-        Args:
-            state: Onde o modelo treinado está guardado.
-            user_id: O ID do usuário para quem queremos recomendar.
-
-        Returns:
-            list[dict]: Lista de notícias recomendadas.
-        """
+    def predict(self, state: StateManager, user_id: str, keywords: Optional[List[str]] = None) -> list[dict]:
         if state.PREDICTOR is None:
             logger.warning("Modelo não treinado")
             raise HTTPException(status_code=400, detail="Modelo não treinado")
 
         start_time = time.time()
-        # Usa o modelo para prever quais notícias o usuário vai gostar
-        predictions = state.PREDICTOR.predict(user_id)
+        if user_id not in state.USER_PROFILES:
+            logger.info(f"Usuário {user_id} não encontrado; aplicando cold-start")
+            popular_news = self.trainer.handle_cold_start(state.NOTICIAS, keywords)
+            predictions = [{"page": page, "title": state.NOTICIAS[state.NOTICIAS['page'] == page]['title'].iloc[0],
+                            "link": state.NOTICIAS[state.NOTICIAS['page'] == page]['url'].iloc[0]}
+                           for page in popular_news]
+        else:
+            predictions = state.PREDICTOR.predict(user_id)
         elapsed = time.time() - start_time
         logger.info(f"Predições geradas para {user_id} em {elapsed:.2f} segundos")
         return predictions

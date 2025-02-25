@@ -1,82 +1,178 @@
 import logging
 import pandas as pd
-from sklearn.linear_model import Ridge
-import joblib
+import torch
+import torch.nn as nn
+import torch.optim as optim
 import numpy as np
+from sklearn.preprocessing import LabelEncoder
 import time
-import os  # Adicionado para manipulação de caminhos
+import os
 
-# Configura o logger para mensagens detalhadas
+# Configura o logger para exibir mensagens detalhadas
 logger = logging.getLogger(__name__)
 
-class Trainer:
-    def train(self, interacoes: pd.DataFrame, noticias: pd.DataFrame, user_profiles: dict, validacao_file: str) -> Ridge:
+
+class RecommendationModel(nn.Module):
+    """
+    Modelo de recomendação neural que combina embeddings de usuários e notícias.
+    """
+
+    def __init__(self, user_embedding_dim, news_embedding_dim, hidden_dim=128):
         """
-        Treina um modelo de regressão Ridge usando dados de validação e perfis de usuário.
+        Inicializa o modelo com camadas densas para processar embeddings.
 
         Args:
-            interacoes (pd.DataFrame): Dados de interações dos usuários (não usado diretamente, mas mantido para consistência).
-            noticias (pd.DataFrame): Dados das notícias com embeddings.
-            user_profiles (dict): Perfis de usuário pré-processados (user_id -> embedding).
-            validacao_file (str): Caminho do arquivo CSV de validação (ex.: data/validacao_kaggle.csv).
+            user_embedding_dim (int): Dimensão dos embeddings de usuário.
+            news_embedding_dim (int): Dimensão dos embeddings de notícias.
+            hidden_dim (int): Dimensão da camada oculta (padrão: 128).
+        """
+        super(RecommendationModel, self).__init__()
+        self.news_layer = nn.Linear(news_embedding_dim, hidden_dim)  # Reduz embeddings de notícias
+        self.user_layer = nn.Linear(user_embedding_dim, hidden_dim)  # Reduz embeddings de usuário
+        self.relu = nn.ReLU()  # Função de ativação
+        self.output_layer = nn.Linear(hidden_dim * 2, 1)  # Camada de saída para predição
+        self.sigmoid = nn.Sigmoid()  # Converte saída em probabilidade (0-1)
+
+    def forward(self, user_emb, news_emb):
+        """
+        Faz a passagem direta (forward pass) do modelo.
+
+        Args:
+            user_emb (torch.Tensor): Embedding do usuário.
+            news_emb (torch.Tensor): Embedding da notícia.
 
         Returns:
-            Ridge: Modelo treinado ou None se falhar.
+            torch.Tensor: Probabilidade de interação (0-1).
         """
-        train_start_time = time.time()
-        logger.info(f"Iniciando treinamento do modelo com arquivo de validação {validacao_file}")
+        user_out = self.user_layer(user_emb)
+        news_out = self.news_layer(news_emb)
+        combined = torch.cat((user_out, news_out), dim=1)  # Concatena os embeddings processados
+        output = self.output_layer(self.relu(combined))
+        return self.sigmoid(output)
 
-        # Carrega o arquivo de validação
-        load_start = time.time()
-        logger.info(f"Carregando dados de validação de {validacao_file}")
-        validacao = pd.read_csv(validacao_file)
-        total_validacao = len(validacao)
-        load_elapsed = time.time() - load_start
-        logger.info(f"Dados de validação carregados: {total_validacao} registros em {load_elapsed:.2f} segundos")
+
+class Trainer:
+    def train(self, interacoes, noticias, user_profiles, validation_file):
+        """
+        Treina o modelo de recomendação usando GPU com PyTorch.
+
+        Args:
+            interacoes (pd.DataFrame): Dados de interações dos usuários.
+            noticias (pd.DataFrame): Dados das notícias com embeddings.
+            user_profiles (dict): Perfis dos usuários como embeddings.
+            validation_file (str): Caminho do arquivo de validação.
+
+        Returns:
+            object: Modelo treinado.
+        """
+        logger.info("Iniciando ajuste do modelo na GPU")
+        start_time = time.time()
+
+        # Define o dispositivo (GPU se disponível, senão CPU)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Usando dispositivo: {device}")
+
+        # Carrega os dados de validação
+        logger.info(f"Carregando dados de validação de {validation_file}")
+        validacao = pd.read_csv(validation_file)
+        elapsed = time.time() - start_time
+        logger.info(f"Dados de validação carregados: {len(validacao)} registros em {elapsed:.2f} segundos")
 
         # Prepara os dados para treinamento
-        prep_start = time.time()
-        logger.info(f"Preparando dados para treinamento com {total_validacao} registros")
-        # Filtra linhas inválidas (usuários ou notícias ausentes nos dados pré-processados)
-        valid_users = validacao['userId'].isin(user_profiles.keys())
-        valid_news = validacao['history'].isin(noticias['page'].values)
-        valid_rows = valid_users & valid_news
-        validacao = validacao[valid_rows]
-        logger.debug(f"Filtradas {len(validacao)} linhas válidas após verificação de usuários e notícias")
+        logger.info(f"Preparando dados para treinamento com {len(validacao)} registros")
+        start_time = time.time()
 
-        # Constrói os dados de entrada (X) e saída (y) para o modelo
-        X = np.array([
-            np.concatenate([user_profiles[row['userId']], noticias[noticias['page'] == row['history']]['embedding'].values[0]])
-            for _, row in validacao.iterrows()
-        ])
-        y = validacao['relevance'].values
-        prep_elapsed = time.time() - prep_start
-        logger.info(f"Dados preparados: {len(X)} amostras para treinamento em {prep_elapsed:.2f} segundos")
+        # Usa 'history' como a coluna de notícias, conforme validacao_kaggle.csv
+        news_column = 'history'
+        if news_column not in validacao.columns:
+            logger.error(
+                f"Coluna '{news_column}' não encontrada em validacao. Colunas disponíveis: {validacao.columns}")
+            raise KeyError(f"Coluna '{news_column}' não encontrada em {validation_file}")
 
-        # Verifica se há dados suficientes para treinar
-        if len(X) > 0:
-            model_start = time.time()
-            logger.info("Iniciando treinamento do modelo Ridge com sklearn")
-            # Inicializa o modelo Ridge com hiperparâmetro alpha=1.0
-            regressor = Ridge(alpha=1.0)
-            # Treina o modelo com os dados preparados
-            regressor.fit(X, y)
-            train_elapsed = time.time() - model_start
-            logger.info(f"Modelo Ridge treinado em {train_elapsed:.2f} segundos")
+        # Codifica os IDs das notícias para índices numéricos
+        news_encoder = LabelEncoder()
+        news_encoder.fit(noticias['page'])
+        validacao['news_idx'] = news_encoder.transform(validacao[news_column])
 
-            # Salva o modelo treinado no disco, na pasta data/cache
-            cache_dir = 'data/cache'
-            os.makedirs(cache_dir, exist_ok=True)  # Cria o diretório se não existir
-            model_path = os.path.join(cache_dir, 'regressor.pkl')
-            save_start = time.time()
-            logger.info(f"Salvando modelo treinado em {model_path}")
-            joblib.dump(regressor, model_path)
-            save_elapsed = time.time() - save_start
-            total_elapsed = time.time() - train_start_time
-            logger.info(f"Modelo salvo em {save_elapsed:.2f} segundos. Treinamento total concluído em {total_elapsed:.2f} segundos")
-            return regressor
-        else:
-            logger.warning("Dados insuficientes para treinamento após filtragem")
-            total_elapsed = time.time() - train_start_time
-            logger.info(f"Treinamento abortado em {total_elapsed:.2f} segundos devido a dados insuficientes")
-            return None
+        # Filtra apenas usuários com perfis existentes
+        validacao = validacao[validacao['userId'].isin(user_profiles.keys())]
+        logger.debug(f"Filtradas {len(validacao)} linhas válidas após verificação de usuários")
+
+        # Prepara os tensores para treinamento
+        # Converte a lista de embeddings para um único numpy.ndarray antes de criar o tensor
+        user_embeddings = np.array([user_profiles[row['userId']] for _, row in validacao.iterrows()])
+        X_user = torch.tensor(user_embeddings, dtype=torch.float32).to(device)
+        X_news = torch.tensor([noticias[noticias['page'] == row[news_column]]['embedding'].iloc[0]
+                               for _, row in validacao.iterrows()],
+                              dtype=torch.float32).to(device)
+        y = torch.tensor(validacao['relevance'].values, dtype=torch.float32).unsqueeze(1).to(device)
+
+        elapsed = time.time() - start_time
+        logger.info(f"Dados preparados em {elapsed:.2f} segundos")
+
+        # Configura o modelo com as dimensões dos embeddings
+        user_embedding_dim = X_user.shape[1]
+        news_embedding_dim = X_news.shape[1]
+        model = RecommendationModel(user_embedding_dim, news_embedding_dim).to(device)
+        criterion = nn.BCELoss()  # Perda binária sem pesos de recência
+        optimizer = optim.Adam(model.parameters(), lr=0.001)  # Otimizador Adam
+
+        # Treina o modelo na GPU
+        logger.info("Iniciando treinamento na GPU")
+        start_time = time.time()
+        num_epochs = 50  # Número de épocas (ajustável)
+        batch_size = 1024  # Tamanho do batch (ajustável)
+        for epoch in range(num_epochs):
+            model.train()
+            total_loss = 0
+            for i in range(0, len(X_user), batch_size):
+                batch_X_user = X_user[i:i + batch_size]
+                batch_X_news = X_news[i:i + batch_size]
+                batch_y = y[i:i + batch_size]
+
+                optimizer.zero_grad()  # Limpa gradientes
+                outputs = model(batch_X_user, batch_X_news)  # Forward pass
+                loss = criterion(outputs, batch_y)  # Calcula perda
+                loss.backward()  # Backpropagation
+                optimizer.step()  # Atualiza pesos
+                total_loss += loss.item() * batch_X_user.size(0)
+
+            avg_loss = total_loss / len(X_user)
+            if (epoch + 1) % 10 == 0:  # Log a cada 10 épocas
+                logger.info(f"Época {epoch + 1}/{num_epochs}, Perda Média: {avg_loss:.4f}")
+
+        elapsed = time.time() - start_time
+        logger.info(f"Modelo treinado com sucesso em {elapsed:.2f} segundos")
+
+        # Move o modelo para CPU para salvamento
+        model = model.cpu()
+        return model
+
+    def handle_cold_start(self, noticias, keywords=None):
+        """
+        Gera recomendações cold-start baseadas em popularidade ou palavras-chave.
+
+        Args:
+            noticias (pd.DataFrame): Dados das notícias.
+            keywords (List[str], opcional): Palavras-chave fornecidas pelo usuário.
+
+        Returns:
+            list: Lista de IDs de notícias recomendadas.
+        """
+        logger.info("Gerando recomendações cold-start")
+        if keywords:
+            logger.info(f"Filtrando notícias com palavras-chave: {keywords}")
+            # Filtra notícias que contêm pelo menos uma palavra-chave no título ou corpo
+            mask = noticias['title'].str.contains('|'.join(keywords), case=False, na=False) | \
+                   noticias['body'].str.contains('|'.join(keywords), case=False, na=False)
+            filtered_news = noticias[mask]
+            if len(filtered_news) > 0:
+                # Ordena por recência entre as filtradas
+                popular_news = filtered_news.sort_values('issued', ascending=False).head(10)['page'].tolist()
+                logger.info(f"Encontradas {len(popular_news)} notícias relevantes para palavras-chave")
+                return popular_news
+
+        # Fallback: notícias populares se não houver palavras-chave ou resultados
+        logger.info("Nenhuma palavra-chave fornecida ou resultados encontrados; usando popularidade")
+        popular_news = noticias.sort_values('issued', ascending=False).head(10)['page'].tolist()
+        return popular_news

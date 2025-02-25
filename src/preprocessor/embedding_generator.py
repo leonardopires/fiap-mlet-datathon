@@ -52,8 +52,8 @@ class EmbeddingGenerator:
         total_batches = (len(titles) + self.batch_size - 1) // self.batch_size
         logger.debug(f"Preparando {len(titles)} títulos para codificação em {total_batches} batches")
 
-        # Usa uma técnica para fazer os cálculos mais rápido na GPU, se disponível
-        with torch.cuda.amp.autocast():
+        # Usa uma técnica para fazer os cálculos mais rápido na GPU, se disponível, com a nova sintaxe do PyTorch
+        with torch.amp.autocast('cuda'):  # Atualizado de torch.cuda.amp.autocast() para eliminar o FutureWarning
             # Converte os títulos em embeddings usando o modelo
             embeddings = model.encode(
                 titles,  # Os títulos que queremos transformar

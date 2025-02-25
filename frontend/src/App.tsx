@@ -10,14 +10,26 @@ interface Recommendation {
 
 const App: React.FC = () => {
   const [userId, setUserId] = useState<string>('');
+  const [keywords, setKeywords] = useState<string>(''); // Estado para palavras-chave
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
   const [subsampleFrac, setSubsampleFrac] = useState<string>('');
+  const [forceRetrain, setForceRetrain] = useState<boolean>(false);
   const [trainStatus, setTrainStatus] = useState<string>('');
+
+  // Define o tipo do payload explicitamente
+  interface PredictPayload {
+    user_id: string;
+    keywords?: string[]; // Propriedade opcional para palavras-chave
+  }
 
   const fetchRecommendations = async () => {
     try {
-      const response = await axios.post('http://localhost:8000/predict', { user_id: userId });
+      const payload: PredictPayload = { user_id: userId }; // Tipo explícito
+      if (keywords) {
+        payload.keywords = keywords.split(',').map(kw => kw.trim()); // Agora TypeScript reconhece 'keywords'
+      }
+      const response = await axios.post('http://localhost:8000/predict', payload);
       setRecommendations(response.data.acessos_futuros);
     } catch (error) {
       console.error('Erro ao obter recomendações:', error);
@@ -27,7 +39,7 @@ const App: React.FC = () => {
 
   const startTraining = async () => {
     try {
-      const payload: { subsample_frac?: number; force_reprocess?: boolean } = {};
+      const payload: { subsample_frac?: number; force_reprocess?: boolean; force_retrain?: boolean } = {};
       if (subsampleFrac) {
         const frac = parseFloat(subsampleFrac);
         if (frac > 0 && frac <= 1) {
@@ -37,6 +49,7 @@ const App: React.FC = () => {
           return;
         }
       }
+      payload.force_retrain = forceRetrain;
       const response = await axios.post('http://localhost:8000/train', payload);
       setTrainStatus(response.data.message);
     } catch (error) {
@@ -45,8 +58,33 @@ const App: React.FC = () => {
     }
   };
 
-  const fetchLogs = () => {
-    setLogs(['Log 1: Iniciando...', 'Log 2: Treinamento em andamento...']);
+  const logInteraction = async (page: string) => {
+    try {
+      const interaction = {
+        user_id: userId,
+        page: page,
+        clicks: 1,
+        time_on_page: 10000,
+        scroll_percentage: 50,
+        timestamp: Date.now()
+      };
+      const response = await axios.post('http://localhost:8000/log_interaction', interaction);
+      console.log(response.data.message);
+    } catch (error) {
+      console.error('Erro ao registrar interação:', error);
+    }
+  };
+
+  const fetchLogs = async () => {
+    try {
+      const response = await axios.get('http://localhost:8000/logs');
+      const allLogs = response.data.logs;
+      const recentLogs = allLogs.slice(-100);
+      setLogs(recentLogs);
+    } catch (error) {
+      console.error('Erro ao obter logs:', error);
+      setLogs(['Erro ao carregar logs do servidor.']);
+    }
   };
 
   return (
@@ -63,6 +101,18 @@ const App: React.FC = () => {
                 value={userId}
                 onChange={(e) => setUserId(e.target.value)}
               />
+            </Form.Group>
+            <Form.Group controlId="keywords" className="mb-3">
+              <Form.Label>Palavras-Chave (separadas por vírgula, opcional)</Form.Label>
+              <Form.Control
+                type="text"
+                placeholder="Ex.: esportes, tecnologia"
+                value={keywords}
+                onChange={(e) => setKeywords(e.target.value)}
+              />
+              <Form.Text className="text-muted">
+                Insira palavras-chave para personalizar recomendações iniciais.
+              </Form.Text>
             </Form.Group>
             <Button variant="primary" onClick={fetchRecommendations}>
               Obter Recomendações
@@ -81,7 +131,7 @@ const App: React.FC = () => {
                           <strong>ID:</strong> {rec.page}<br />
                           <strong>Link:</strong>{' '}
                           {rec.link !== 'N/A' ? (
-                            <a href={rec.link} target="_blank" rel="noopener noreferrer">
+                            <a href={rec.link} target="_blank" rel="noopener noreferrer" onClick={() => logInteraction(rec.page)}>
                               {rec.link}
                             </a>
                           ) : (
@@ -112,6 +162,17 @@ const App: React.FC = () => {
                 value={subsampleFrac}
                 onChange={(e) => setSubsampleFrac(e.target.value)}
               />
+            </Form.Group>
+            <Form.Group controlId="forceRetrain" className="mb-3">
+              <Form.Check
+                type="checkbox"
+                label="Forçar Novo Treinamento"
+                checked={forceRetrain}
+                onChange={(e) => setForceRetrain(e.target.checked)}
+              />
+              <Form.Text className="text-muted">
+                Marque para descartar o modelo treinado existente e treinar um novo.
+              </Form.Text>
             </Form.Group>
             <Button variant="success" onClick={startTraining} className="mb-3">
               Iniciar Treinamento

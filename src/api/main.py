@@ -11,11 +11,15 @@ def create_app():
     Cria e configura o aplicativo FastAPI para ser usado pelo servidor.
 
     Returns:
-        FastAPI: O aplicativo configurado com todas as rotas e inicializações.
+        FastAPI: O aplicativo configurado com todas as rotas.
     """
     logger.info("Criando o aplicativo FastAPI a partir do módulo src.api.main")
     server = APIServer()  # Cria o servidor com todas as configurações
-    server.data_initializer.initialize_data(server.state)  # Prepara os dados
+    # Carrega dados persistentes, se disponíveis, mas não força pré-processamento ou treinamento
+    if server.data_initializer.load_persisted_data(server.state):
+        logger.info("Dados persistentes carregados na inicialização")
+    else:
+        logger.info("Nenhum dado persistente encontrado; aguardando chamada ao /train")
     return server.app  # Retorna o objeto FastAPI configurado
 
 

@@ -1,4 +1,5 @@
 import logging
+import warnings
 import os
 import h5py
 import pandas as pd
@@ -91,5 +92,11 @@ class CacheManager:
             key (str): Um nome para identificar a tabela no arquivo.
         """
         logger.info(f"Salvando DataFrame em {cache_file}")
-        # Salva a tabela com compressão para economizar espaço
-        df.to_hdf(cache_file, key=key, mode='w', complevel=4, complib='blosc')
+        start_time = time.time()
+        # Salva a tabela sem compressão e em formato 'table' para evitar forks, suprimindo avisos de desempenho
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
+            df.to_hdf(cache_file, key=key, mode='w', format='fixed')
+        elapsed = time.time() - start_time
+        logger.info(f"DataFrame salvo com sucesso em {cache_file} em {elapsed:.2f} segundos")
+
