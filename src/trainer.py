@@ -1,7 +1,9 @@
 import logging
 import pandas as pd
+from tqdm import tqdm  # Para barras de progresso
 import torch
 import torch.nn as nn
+from torch.utils.data import TensorDataset, DataLoader
 import torch.optim as optim
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
@@ -94,18 +96,61 @@ class Trainer:
         news_encoder.fit(noticias['page'])
         validacao['news_idx'] = news_encoder.transform(validacao[news_column])
 
-        # Filtra apenas usuários com perfis existentes
+        # Filtra apenas usuários com perfis existentes na CPU
+        elapsed = time.time() - start_time
+        logger.debug(f"Verificando usuários com perfis existentes. Elapsed: {elapsed:.2f} s")
         validacao = validacao[validacao['userId'].isin(user_profiles.keys())]
         logger.debug(f"Filtradas {len(validacao)} linhas válidas após verificação de usuários")
 
-        # Prepara os tensores para treinamento
-        # Converte a lista de embeddings para um único numpy.ndarray antes de criar o tensor
-        user_embeddings = np.array([user_profiles[row['userId']] for _, row in validacao.iterrows()])
-        X_user = torch.tensor(user_embeddings, dtype=torch.float32).to(device)
-        X_news = torch.tensor([noticias[noticias['page'] == row[news_column]]['embedding'].iloc[0]
-                               for _, row in validacao.iterrows()],
-                              dtype=torch.float32).to(device)
-        y = torch.tensor(validacao['relevance'].values, dtype=torch.float32).unsqueeze(1).to(device)
+        # Prepara tensores na GPU para usuários e notícias
+        logger.debug("Pré-carregando embeddings de notícias na GPU")
+        news_embeddings = torch.tensor(np.array(noticias['embedding'].tolist()), dtype=torch.float32).to(device)
+        news_page_to_idx = {page: idx for idx, page in enumerate(noticias['page'])}
+        elapsed = time.time() - start_time
+        logger.debug(f"Embeddings de notícias carregados: {news_embeddings.shape}. Elapsed: {elapsed:.2f} s")
+
+        logger.debug("Pré-carregando embeddings de usuários na GPU")
+        user_ids = list(user_profiles.keys())
+        user_embeddings = torch.tensor(np.array(list(user_profiles.values())), dtype=torch.float32).to(device)
+        user_id_to_idx = {uid: idx for idx, uid in enumerate(user_ids)}
+        elapsed = time.time() - start_time
+        logger.debug(f"Embeddings de usuários carregados: {user_embeddings.shape}. Elapsed: {elapsed:.2f} s")
+
+        logger.debug("Preparando índices de usuários e notícias com barra de progresso")
+        X_user_indices = torch.tensor([user_id_to_idx[row['userId']] for _, row in
+                                       tqdm(validacao.iterrows(), total=len(validacao), desc="Preparando X_user")],
+                                      dtype=torch.long).to(device)
+        elapsed = time.time() - start_time
+        logger.debug(f"Índices de usuários preparados: {X_user_indices.shape}. Elapsed: {elapsed:.2f} s")
+
+        X_news_indices = torch.tensor([news_page_to_idx[row[news_column]] for _, row in
+                                       tqdm(validacao.iterrows(), total=len(validacao), desc="Preparando X_news")],
+                                      dtype=torch.long).to(device)
+        elapsed = time.time() - start_time
+        logger.debug(f"Índices de notícias preparados: {X_news_indices.shape}. Elapsed: {elapsed:.2f} s")
+
+        # Usa índices para selecionar embeddings diretamente na GPU e cria dataset
+        X_user = user_embeddings[X_user_indices]
+        elapsed = time.time() - start_time
+        logger.debug(f"Tensores de usuários: {X_user.shape}. Elapsed: {elapsed:.2f} s")
+        X_news = news_embeddings[X_news_indices]
+        elapsed = time.time() - start_time
+        logger.debug(f"Tensores de notícias: {X_news.shape}. Elapsed: {elapsed:.2f} s")
+        logger.debug("Pré-carregando tensor de relevância na GPU")
+        y = torch.tensor(validacao['relevance'].values, dtype=torch.float32, device=device).unsqueeze(1)
+        elapsed = time.time() - start_time
+        logger.debug(f"Tensor de relevância preparado: {y.shape}. Elapsed: {elapsed:.2f} s")
+
+        # Prepara o dataset e dataloader para treinamento eficiente na GPU
+        logger.debug("Criando TensorDataset")
+        dataset = TensorDataset(X_user, X_news, y)
+        elapsed = time.time() - start_time
+        logger.debug(f"Dataset criado. Elapsed: {elapsed:.2f} s")
+        batch_size = 2048  # Tamanho do batch (ajustável)
+        logger.debug(f"Inicializando DataLoader com batch_size={batch_size}")
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        elapsed = time.time() - start_time
+        logger.debug(f"DataLoader inicializado. Elapsed: {elapsed:.2f} s")
 
         elapsed = time.time() - start_time
         logger.info(f"Dados preparados em {elapsed:.2f} segundos")
@@ -114,27 +159,30 @@ class Trainer:
         user_embedding_dim = X_user.shape[1]
         news_embedding_dim = X_news.shape[1]
         model = RecommendationModel(user_embedding_dim, news_embedding_dim).to(device)
-        criterion = nn.BCELoss()  # Perda binária sem pesos de recência
+        criterion = nn.BCEWithLogitsLoss()  # Perda binária com logits, segura para autocast
         optimizer = optim.Adam(model.parameters(), lr=0.001)  # Otimizador Adam
 
-        # Treina o modelo na GPU
+        # Treina o modelo na GPU com precisão mista e barra de progresso
         logger.info("Iniciando treinamento na GPU")
         start_time = time.time()
         num_epochs = 50  # Número de épocas (ajustável)
-        batch_size = 1024  # Tamanho do batch (ajustável)
-        for epoch in range(num_epochs):
+        scaler = torch.amp.GradScaler('cuda')  # Atualizado para nova API do PyTorch 2.6.0
+
+        for epoch in tqdm(range(num_epochs), desc="Treinando épocas", unit="epoch"):
             model.train()
             total_loss = 0
-            for i in range(0, len(X_user), batch_size):
-                batch_X_user = X_user[i:i + batch_size]
-                batch_X_news = X_news[i:i + batch_size]
-                batch_y = y[i:i + batch_size]
+            for batch_idx, (batch_X_user, batch_X_news, batch_y) in enumerate(tqdm(dataloader, desc=f"Época {epoch+1}/{num_epochs}", leave=False, unit="batch")):
+                # Usa precisão mista para acelerar o treinamento, com nova API
+                with torch.amp.autocast('cuda'):
+                    outputs = model(batch_X_user, batch_X_news)  # Forward pass
+                    loss = criterion(outputs, batch_y)  # Calcula perda
 
+                # Backpropagation com escalonamento de gradientes
                 optimizer.zero_grad()  # Limpa gradientes
-                outputs = model(batch_X_user, batch_X_news)  # Forward pass
-                loss = criterion(outputs, batch_y)  # Calcula perda
-                loss.backward()  # Backpropagation
-                optimizer.step()  # Atualiza pesos
+                scaler.scale(loss).backward()  # Backpropagation com precisão mista
+                scaler.step(optimizer)  # Atualiza pesos\
+                scaler.update()  # Atualiza o scaler para próxima iteração
+
                 total_loss += loss.item() * batch_X_user.size(0)
 
             avg_loss = total_loss / len(X_user)
