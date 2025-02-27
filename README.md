@@ -22,9 +22,14 @@ cd fiap-mlet-datathon
 ### 2. Execute o Script de Instalação
 O script de instalação automatiza a configuração do ambiente. Escolha o script para seu sistema:
 
+
 #### Windows
 ```powershell
 .\install.ps1
+```
+Se o comando acime apresentar um erro `running scripts is disabled on this system.` execute antes este comando para habilitar sua permissão.
+```powershell
+Set-ExecutionPolicy Unrestricted -Scope Process
 ```
 
 #### Linux
@@ -33,9 +38,23 @@ chmod +x install.sh
 ./install.sh
 ```
 
-Isso cria o ambiente virtual, instala dependências e baixa os dados. Siga as instruções exibidas ao final para rodar o Docker Compose.
+Isso deverá cria o ambiente virtual, instalar as dependências e baixa os dados.
 
-### 3. (Alternativa Manual) Configure o Ambiente
+Se não houverem erros, pule para a etapa Construa e `Inicie o Docker Compose` e siga  instruções exibidas para rodar o Docker Compose.
+
+Se houverem erros, ou você desejar fazer manualmente, siga a partir dos itens opcionais a seguir.
+
+### 2.1. (Alternativa Manual) Baixe os dados
+> ⚠ **Atenção:** Se ao rodar o comando anterior, os dados não forem baixados corretamente, você pode ter recebido um erro conforme abaixo:
+```bash
+zipfile.BadZipFile: File is not a zip file
+Erro ao baixar ou descompactar os dados. Verifique o script download_data.py.
+```
+Se isto ocorrer, ou você quiser fazer manualmente, pode baixá-los pelo link abaixo e descompactar o conteúdo dentro da pasta `data`:
+🔗 [Baixar os dados](https://drive.google.com/file/d/13rvnyK5PJADJQgYe-VbdXb7PpLPj7lPr/view)
+
+
+### 2.2. (Alternativa Manual) Configure o Ambiente
 Se preferir configurar manualmente:
 1. Crie e ative o ambiente virtual:
    **Windows**:
@@ -57,7 +76,7 @@ Se preferir configurar manualmente:
    python download_data.py
    ```
 
-### 4. (Opcional) Configure o Suporte à GPU
+### 2.3. (Opcional) Configure o Suporte à GPU
 Se você tem uma GPU NVIDIA (como a RTX 2080 SUPER), configure o CUDA para acelerar o treinamento. Escolha as instruções para seu sistema operacional:
 
 #### Windows (usando Docker Desktop e WSL 2)
@@ -108,7 +127,7 @@ Se você tem uma GPU NVIDIA (como a RTX 2080 SUPER), configure o CUDA para acele
    ```
 4. O `docker-compose.yml` já inclui suporte à GPU; não é necessário ajustar nada.
 
-### 5. Construa e Inicie o Docker Compose
+### 3. Construa e Inicie o Docker Compose
 Construa a imagem Docker e inicie o serviço:
 ```bash
 docker-compose build
@@ -118,7 +137,7 @@ docker-compose up
 - Ele gera `submission.csv` e inicia a API em `http://localhost:8000`.
 - O volume `.:/app` monta todos os arquivos do projeto (código, dados, estáticos), e o parâmetro `--reload` no Uvicorn permite que alterações em `recomendador.py` sejam aplicadas sem rebuild; para mudanças em `static/index.html`, basta atualizar a página no navegador.
 
-### 6. Teste a API
+### 4. Teste a API
 Com o container rodando, você pode testar a API de algumas formas:
 
 #### Usando Swagger UI

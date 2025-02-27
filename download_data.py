@@ -10,21 +10,49 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 FILE_ID = "13rvnyK5PJADJQgYe-VbdXb7PpLPj7lPr"
-DOWNLOAD_URL = f"https://drive.google.com/uc?export=download&id={FILE_ID}"
 OUTPUT_ZIP = "data.zip"
 DATA_DIR = "data"
 
-def download_file():
-    logger.info("Baixando o arquivo do Google Drive...")
-    response = requests.get(DOWNLOAD_URL, stream=True)
-    if "confirm" in response.url:
-        confirm_token = response.cookies.get("download_warning")
-        DOWNLOAD_URL_CONFIRM = f"{DOWNLOAD_URL}&confirm={confirm_token}"
-        response = requests.get(DOWNLOAD_URL_CONFIRM, stream=True)
-    with open(OUTPUT_ZIP, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
+def get_confirm_token(response):
+    """
+    Retorna o token de confirmação (download_warning) que o Google Drive usa
+    para permitir o download de arquivos grandes.
+    """
+    for key, value in response.cookies.items():
+        if key.startswith("download_warning"):
+            return value
+    return None
+
+def save_response_content(response, destination):
+    """
+    Salva o conteúdo do 'response' no arquivo de destino, em chunks.
+    """
+    CHUNK_SIZE = 32768
+    with open(destination, "wb") as f:
+        for chunk in response.iter_content(CHUNK_SIZE):
             if chunk:
                 f.write(chunk)
+
+def download_file():
+    """
+    Faz o download do arquivo (ZIP) do Google Drive, levando em conta o 'confirm token'
+    caso o Drive exija confirmação para arquivos grandes.
+    """
+    logger.info("Baixando o arquivo do Google Drive...")
+    URL = "https://docs.google.com/uc?export=download"
+    session = requests.Session()
+
+    # 1) Primeira requisição: pode retornar HTML com aviso sobre verificação de vírus
+    response = session.get(URL, params={'id': FILE_ID}, stream=True)
+    token = get_confirm_token(response)
+
+    # 2) Se houver token, o Drive pede confirmação explícita
+    if token:
+        params = {'id': FILE_ID, 'confirm': token}
+        response = session.get(URL, params=params, stream=True)
+
+    # 3) Salva o conteúdo verdadeiro (ZIP) no destino
+    save_response_content(response, OUTPUT_ZIP)
     logger.info(f"Download concluído: {OUTPUT_ZIP}")
 
 def extract_file():
