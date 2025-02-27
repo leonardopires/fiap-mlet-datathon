@@ -17,6 +17,7 @@ const App: React.FC = () => {
   const [subsampleFrac, setSubsampleFrac] = useState<string>('');
   const [forceRetrain, setForceRetrain] = useState<boolean>(false);
   const [trainStatus, setTrainStatus] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string>(""); // Novo estado para erro
 
   // Define o tipo do payload explicitamente
   interface PredictPayload {
@@ -30,11 +31,22 @@ const App: React.FC = () => {
       if (keywords) {
         payload.keywords = keywords.split(',').map(kw => kw.trim()); // Agora TypeScript reconhece 'keywords'
       }
+
       const response = await axios.post('http://localhost:8000/predict', payload);
       setRecommendations(response.data.acessos_futuros);
-    } catch (error) {
+      setErrorMessage(""); // Se a requisição for bem-sucedida, remove o erro
+
+    } catch (error: any) {
       console.error('Erro ao obter recomendações:', error);
-      setRecommendations([{ page: 'Erro', title: 'Erro ao carregar recomendações', link: 'N/A' }]);
+
+      // Se for erro 400, exibir mensagem personalizada
+      if (error.response && error.response.status === 400) {
+        setErrorMessage("⚠️ O modelo ainda não foi treinado. Tente novamente após o treinamento.");
+      } else {
+        setErrorMessage("Erro ao carregar recomendações.");
+      }
+
+      setRecommendations([]);
     }
   };
 
@@ -119,6 +131,14 @@ const App: React.FC = () => {
               Obter Recomendações
             </Button>
           </Form>
+
+          {/* Exibir alerta caso haja erro */}
+          {errorMessage && (
+            <Alert variant="danger" className="mt-3">
+              {errorMessage}
+            </Alert>
+          )}
+
           <div className="mt-4">
             <h3>Recomendações</h3>
             {recommendations.length > 0 ? (
@@ -171,9 +191,6 @@ const App: React.FC = () => {
                 checked={forceRetrain}
                 onChange={(e) => setForceRetrain(e.target.checked)}
               />
-              <Form.Text className="text-muted">
-                Marque para descartar o modelo treinado existente e treinar um novo.
-              </Form.Text>
             </Form.Group>
             <Button variant="success" onClick={startTraining} className="mb-3">
               Iniciar Treinamento
@@ -181,19 +198,7 @@ const App: React.FC = () => {
             <Button variant="info" href="http://localhost:8000/docs" target="_blank" className="mb-3 ms-2">
               Abrir Swagger UI
             </Button>
-            {trainStatus && (
-              <Alert variant={trainStatus.includes('Erro') ? 'danger' : 'success'} className="mt-3">
-                {trainStatus}
-              </Alert>
-            )}
           </Form>
-          <h3>Logs do Servidor</h3>
-          <Button variant="secondary" onClick={fetchLogs} className="mb-3">
-            Atualizar Logs
-          </Button>
-          <pre style={{ maxHeight: '400px', overflowY: 'auto', backgroundColor: '#f8f9fa', padding: '10px' }}>
-            {logs.length > 0 ? logs.join('\n') : 'Nenhum log disponível ainda.'}
-          </pre>
         </Tab>
       </Tabs>
     </Container>

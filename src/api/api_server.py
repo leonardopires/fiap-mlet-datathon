@@ -25,16 +25,16 @@ log_file = os.path.join(log_dir, 'app.log')
 
 # Configura um RotatingFileHandler para salvar logs em arquivo
 file_handler = RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=5)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+# Modifica o formatter para incluir "recomendador-g1 |"
+formatter = logging.Formatter('recomendador-g1 | %(asctime)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 
 # Configura o logging para usar o FileHandler e também mostrar no console
 console_handler = logging.StreamHandler()
-console_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)  # Usa o mesmo formatter para o console
 logger.handlers = []
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
-
 
 class APIServer:
     def __init__(self):
@@ -116,6 +116,7 @@ class APIServer:
             elapsed = time.time() - start_time
             logger.info(f"Predição concluída em {elapsed:.2f} segundos")
             return {"user_id": request.user_id, "acessos_futuros": predictions}
+
         @self.app.get("/logs")
         async def get_logs():
             start_time = time.time()
