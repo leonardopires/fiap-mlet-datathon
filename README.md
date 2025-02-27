@@ -130,8 +130,7 @@ Se você tem uma GPU NVIDIA (como a RTX 2080 SUPER), configure o CUDA para acele
 ### 3. Construa e Inicie o Docker Compose
 Construa a imagem Docker e inicie o serviço:
 ```bash
-docker-compose build
-docker-compose up
+docker-compose up --build
 ```
 - O script `recomendador.py` será executado automaticamente dentro do container.
 - Ele gera `submission.csv` e inicia a API em `http://localhost:8000`.
