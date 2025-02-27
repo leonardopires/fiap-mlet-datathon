@@ -12,7 +12,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - TOKENIZERS_PARALLELISM=true
-    command: uvicorn src.app:app --host 0.0.0.0 --port 8000
+    command: python -c "from src.api.main import APIServer; server = APIServer(); import uvicorn; uvicorn.run(server.app, host='0.0.0.0', port=8000, log_config=None)"
     deploy:
       resources:
         reservations:
