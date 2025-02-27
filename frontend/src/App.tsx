@@ -6,6 +6,7 @@ interface Recommendation {
   page: string;
   title: string;
   link: string;
+  date?: string; // Adicionamos a data
 }
 
 const App: React.FC = () => {
@@ -127,17 +128,17 @@ const App: React.FC = () => {
                     <Card>
                       <Card.Body>
                         <Card.Title>{rec.title}</Card.Title>
-                        <Card.Text>
-                          <strong>ID:</strong> {rec.page}<br />
-                          <strong>Link:</strong>{' '}
-                          {rec.link !== 'N/A' ? (
-                            <a href={rec.link} target="_blank" rel="noopener noreferrer" onClick={() => logInteraction(rec.page)}>
-                              {rec.link}
-                            </a>
-                          ) : (
-                            'Não disponível'
-                          )}
-                        </Card.Text>
+                          <Card.Text>
+                            <strong>ID:</strong> {rec.page}<br />
+                            <strong>Data:</strong> {rec.date ? new Date(rec.date).toLocaleDateString() : 'Data não disponível'}<br />
+                            <strong>Link:</strong> {rec.link !== 'N/A' ? (
+                              <a href={rec.link} target="_blank" rel="noopener noreferrer" onClick={() => logInteraction(rec.page)}>
+                                {rec.link}
+                              </a>
+                            ) : (
+                              'Não disponível'
+                            )}
+                          </Card.Text>
                       </Card.Body>
                     </Card>
                   </div>
