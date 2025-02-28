@@ -13,12 +13,13 @@ import os
 # Configura o logger para exibir mensagens detalhadas
 logger = logging.getLogger(__name__)
 
+# Ativa otimização para operações na GPU
+torch.backends.cudnn.benchmark = True
 
 class RecommendationModel(nn.Module):
     """
     Modelo de recomendação neural que combina embeddings de usuários e notícias.
     """
-
     def __init__(self, user_embedding_dim, news_embedding_dim, hidden_dim=128):
         """
         Inicializa o modelo com camadas densas para processar embeddings.
@@ -73,6 +74,15 @@ class Trainer:
         # Define o dispositivo (GPU se disponível, senão CPU)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"Usando dispositivo: {device}")
+
+        # Ajuste dinâmico do batch_size com base na memória da GPU
+        if device.type == "cuda":
+            total_memory, _ = torch.cuda.mem_get_info()
+            max_batch_size = max(32, min(4096, int(total_memory / (1024 * 1024 * 200))))  # Ajuste conservador
+            logger.info(f"Memória da GPU disponível: {total_memory / (1024 * 1024 * 1024):.2f} GB. Batch size ajustado: {max_batch_size}")
+        else:
+            max_batch_size = 512  # Valor padrão para CPU
+        batch_size = max_batch_size
 
         # Carrega os dados de validação
         logger.info(f"Carregando dados de validação de {validation_file}")
@@ -146,9 +156,10 @@ class Trainer:
         dataset = TensorDataset(X_user, X_news, y)
         elapsed = time.time() - start_time
         logger.debug(f"Dataset criado. Elapsed: {elapsed:.2f} s")
-        batch_size = 2048  # Tamanho do batch (ajustável)
         logger.debug(f"Inicializando DataLoader com batch_size={batch_size}")
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, 
+                               num_workers=min(8, os.cpu_count() or 1), 
+                               pin_memory=True if device.type == "cuda" else False)
         elapsed = time.time() - start_time
         logger.debug(f"DataLoader inicializado. Elapsed: {elapsed:.2f} s")
 
@@ -180,7 +191,7 @@ class Trainer:
                 # Backpropagation com escalonamento de gradientes
                 optimizer.zero_grad()  # Limpa gradientes
                 scaler.scale(loss).backward()  # Backpropagation com precisão mista
-                scaler.step(optimizer)  # Atualiza pesos\
+                scaler.step(optimizer)  # Atualiza pesos
                 scaler.update()  # Atualiza o scaler para próxima iteração
 
                 total_loss += loss.item() * batch_X_user.size(0)
