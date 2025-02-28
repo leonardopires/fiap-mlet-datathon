@@ -122,7 +122,6 @@ class APIServer:
         @self.app.get("/logs")
         async def get_logs():
             start_time = time.time()
-            logger.info("Requisição para obter logs recebida")
             log_lines = []
             try:
                 with open(os.path.join('logs', 'app.log'), 'r', encoding='utf-8') as f:
@@ -136,7 +135,6 @@ class APIServer:
                 logger.error(f"Erro ao ler logs: {e}")
                 log_lines = ["Erro ao carregar logs do servidor."]
             elapsed = time.time() - start_time
-            logger.info(f"Logs retornados em {elapsed:.2f} segundos (total: {len(log_lines)} logs)")
             return {"logs": log_lines}
 
 if __name__ == "__main__":

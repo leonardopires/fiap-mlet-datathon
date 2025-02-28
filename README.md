@@ -169,16 +169,64 @@ Para parar o container:
 docker-compose down
 ```
 
-## Estrutura do Projeto
+## Diagramas
 
-- `data/`: Contém os arquivos de dados (baixados via script).
-- `recomendador.py`: Código principal com pré-processamento, treinamento e API.
-- `download_data.py`: Script para baixar e descompactar os dados.
-- `install.ps1`: Script PowerShell para configurar o ambiente automaticamente (Windows).
-- `install.sh`: Script Bash para configurar o ambiente automaticamente (Linux).
-- `Dockerfile`: Configuração da imagem Docker.
-- `docker-compose.yml`: Configuração do Docker Compose.
-- `requirements.txt`: Dependências do Python.
+### Arquitetura
+```mermaid
+graph TD;
+    A[Usuário] -->|http://localhost:3000| B[Frontend (React)];
+    B -->|HTTP API| C[Backend (FastAPI)];
+    subgraph Sistema Recomendador G1
+        C --> D[PostgreSQL] |Dados Persistentes|;
+        C --> E[GPU (CUDA)] |Treinamento/Predição|;
+        C --> F[Cache (HDF5)] |Embeddings/Perfis/Modelo|;
+    end
+    G[Dados Brutos (CSV)] -->|Carregamento| C;
+```
+
+### Fluxo da aplicação
+```mermaid
+graph TD;
+    A[Dados Brutos] --> B[DataLoader];
+    B -->|Carrega e Processa| C[Preprocessor];
+    C -->|Gera Embeddings| D[EmbeddingGenerator<br>(Sentence Transformers)];
+    D -->|Salva Embeddings| E[CacheManager];
+    C -->|Cria Perfis| F[UserProfileBuilder];
+    F -->|Perfis com Embeddings| G[Trainer];
+    G -->|Treina com BCEWithLogitsLoss| H[RecommendationModel<br>(Rede Neural)];
+    G -->|Modelo Treinado| I[Predictor];
+    J[APIServer] -->|/train<br>(Carrega ou Treina)| G;
+    J -->|/predict| I;
+    K[App.tsx<br>(Dark Mode UI)] -->|HTTP Requests| J;
+    I -->|Top-10 Recomendações<br>(inclui 'date')| K;
+```
+
+### Hierarquia de classes
+
+```mermaid
+graph TD;
+    subgraph Backend
+        A[DataLoader];
+        B[Preprocessor] --> C[EmbeddingGenerator<br>(Sentence Transformers)];
+        B --> D[CacheManager];
+        B --> E[UserProfileBuilder] --> F[EngagementCalculator];
+        B --> G[ResourceLogger];
+        H[Trainer] --> I[RecommendationModel<br>(Rede Neural)];
+        J[Predictor];
+        K[ModelManager] --> H;
+        K --> J;
+        L[APIServer] --> M[StateManager];
+        L --> N[DataInitializer] --> A;
+        L --> N --> B;
+        L --> K;
+    end
+
+    subgraph Frontend
+        O[App<br>(Dark Mode, Sidebar Inferior)];
+    end
+
+    L -->|API Calls<br>(/train, /predict)| O;
+```
 
 ## Notas
 

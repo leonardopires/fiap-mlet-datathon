@@ -15,7 +15,7 @@ body {
 
 /* Container principal da aplicação */
 .app-container {
-  height: 100vh;
+  height: calc(100vh - 200px);
   overflow: hidden;
   transition: opacity 0.3s ease; /* Fade suave ao carregar */
 }
