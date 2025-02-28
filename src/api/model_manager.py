@@ -8,6 +8,7 @@ from .state_manager import StateManager
 import time
 import joblib
 import os
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +47,16 @@ class ModelManager:
             logger.warning("Modelo não treinado")
             raise HTTPException(status_code=400, detail="Modelo não treinado")
 
+        padrao = r"/noticia/(\d{4}/\d{2}/\d{2})/"
         start_time = time.time()
         if user_id not in state.USER_PROFILES:
             logger.info(f"Usuário {user_id} não encontrado; aplicando cold-start")
             popular_news = self.trainer.handle_cold_start(state.NOTICIAS, keywords)
-            predictions = [{"page": page, "title": state.NOTICIAS[state.NOTICIAS['page'] == page]['title'].iloc[0],
-                            "link": state.NOTICIAS[state.NOTICIAS['page'] == page]['url'].iloc[0]}
-                           for page in popular_news]
+            predictions = [{
+                "page": page,
+                "title": state.NOTICIAS[state.NOTICIAS['page'] == page]['title'].iloc[0],
+                "link": state.NOTICIAS[state.NOTICIAS['page'] == page]['url'].iloc[0],
+            } for page in popular_news]
         else:
             predictions = state.PREDICTOR.predict(user_id)
         elapsed = time.time() - start_time

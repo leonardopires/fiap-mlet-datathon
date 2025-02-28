@@ -3,9 +3,7 @@
 /* Estilos gerais para o corpo da aplicação */
 body {
   font-family: 'Poppins', sans-serif; /* Fonte moderna e legível */
-  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); /* Degrade escuro inspirado na FIAP */
-  background-size: cover;
-  background-attachment: fixed;
+
   margin: 0;
   padding: 0;
   color: #ffffff; /* Texto branco para dark mode */
@@ -13,9 +11,12 @@ body {
   transition: background 0.5s ease, opacity 0.3s ease; /* Transição suave para fundo */
 }
 
+#root {
+  height: 100%;
+}
+
 /* Container principal da aplicação */
 .app-container {
-  height: calc(100vh - 200px);
   overflow: hidden;
   transition: opacity 0.3s ease; /* Fade suave ao carregar */
 }
@@ -114,10 +115,10 @@ body {
   max-width: 70%;
   padding: 30px;
   overflow-y: auto;
-  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); /* Degrade escuro */
   border-radius: 0 10px 10px 0;
   box-shadow: inset -2px 0 10px rgba(0, 0, 0, 0.3);
   transition: transform 0.4s ease, opacity 0.3s ease, background 0.5s ease;
+  margin-bottom: 200px;
 }
 
 .main-content:hover {
@@ -452,7 +453,6 @@ body {
 }
 
 .App-header {
-  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
   min-height: 100vh;
   display: flex;
   flex-direction: column;

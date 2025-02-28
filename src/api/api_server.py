@@ -17,11 +17,15 @@ from src.trainer import Trainer
 from src.predictor import Predictor
 
 # Configura o logger raiz para capturar todos os logs, incluindo os do Uvicorn
+log_path = os.path.join('logs', 'app.log')
+# Verifica se a pasta logs existe. Caso contrário, cria ela
+os.makedirs('logs', exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format='recomendador-g1 | %(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        RotatingFileHandler(os.path.join('logs', 'app.log'), maxBytes=50 * 1024 * 1024, backupCount=5),
+        RotatingFileHandler(log_path, maxBytes=50 * 1024 * 1024, backupCount=5),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -124,7 +128,7 @@ class APIServer:
             start_time = time.time()
             log_lines = []
             try:
-                with open(os.path.join('logs', 'app.log'), 'r', encoding='utf-8') as f:
+                with open(log_path, 'r', encoding='utf-8') as f:
                     log_lines = f.readlines()
                 log_lines = [line.strip() for line in log_lines if line.strip()]
                 log_lines = log_lines[-2000:] if len(log_lines) > 2000 else log_lines
