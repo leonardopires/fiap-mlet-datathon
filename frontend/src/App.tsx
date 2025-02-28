@@ -14,7 +14,7 @@ interface Recommendation {
 }
 
 const App: React.FC = () => {
-  const [activeKey, setActiveKey] = useState<string>('recommendations'); // Adiciona o estado para controlar a navegação
+  const [activeKey, setActiveKey] = useState<string>('recommendations'); // Estado para controlar a navegação
   const [userId, setUserId] = useState<string>('');
   const [keywords, setKeywords] = useState<string>('');
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
@@ -116,16 +116,9 @@ const App: React.FC = () => {
   }, [logs]);
 
   return (
-    <div className="d-flex vh-100 app-container" style={{ background: 'linear-gradient(to bottom, #1a1a1a, #2d2d2d)', minHeight: '100vh' }}>
-      {/* Logo FIAP + Alura no canto superior esquerdo */}
-      <div className="fiap-logo" style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 1001 }}>
-        <a href="https://www.fiap.com.br/" target="_blank" rel="noopener noreferrer">
-          <img src="https://postech.fiap.com.br/svg/fiap-plus-alura.svg" alt="FIAP + Alura" className="logo-img" style={{ width: '150px', height: 'auto' }} />
-        </a>
-      </div>
-
-      {/* Sidebar de ícones no canto esquerdo */}
-      <div className="bg-dark sidebar-left" style={{ width: '60px', background: '#1a1a1a' }}>
+    <div className="d-flex vh-100 app-container" style={{ background: 'linear-gradient(to bottom, #000000, #1b1f23)', minHeight: '100vh' }}>
+      {/* Barra lateral de ícones no canto esquerdo */}
+      <div className="bg-dark sidebar-left" style={{ width: '60px', background: '#163747', paddingTop: '10px' }}>
         <Nav variant="pills" className="flex-column">
           <Nav.Item className="mb-2">
             <Nav.Link
@@ -133,6 +126,19 @@ const App: React.FC = () => {
               onClick={() => setActiveKey('recommendations')}
               className="text-white icon-nav d-flex align-items-center justify-content-center"
               data-label="Recomendações"
+              style={{
+                transition: 'background-color 0.3s ease, color 0.3s ease',
+                transitionDelay: '0.2s', // Delay de 200ms para hover e click
+                backgroundColor: activeKey === 'recommendations' ? '#2a4d62' : 'transparent', // Cor derivada de #163747 com leve clareamento
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#2a4d62';
+                e.currentTarget.style.color = '#FFFFFF';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = activeKey === 'recommendations' ? '#2a4d62' : 'transparent';
+                e.currentTarget.style.color = '#FFFFFF';
+              }}
             >
               <NewspaperIcon />
             </Nav.Link>
@@ -143,6 +149,19 @@ const App: React.FC = () => {
               onClick={() => setActiveKey('management')}
               className="text-white icon-nav d-flex align-items-center justify-content-center"
               data-label="Gerenciamento"
+              style={{
+                transition: 'background-color 0.3s ease, color 0.3s ease',
+                transitionDelay: '0.2s', // Delay de 200ms para hover e click
+                backgroundColor: activeKey === 'management' ? '#2a4d62' : 'transparent', // Cor derivada de #163747 com leve clareamento
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#2a4d62';
+                e.currentTarget.style.color = '#FFFFFF';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = activeKey === 'management' ? '#2a4d62' : 'transparent';
+                e.currentTarget.style.color = '#FFFFFF';
+              }}
             >
               <SettingsIcon />
             </Nav.Link>
@@ -150,25 +169,31 @@ const App: React.FC = () => {
         </Nav>
       </div>
 
-      {/* Conteúdo principal com referência ao trabalho */}
+      {/* Conteúdo principal com informações do projeto e título dinâmico */}
       <Container fluid className="flex-grow-1 p-4 main-content" style={{ background: 'none' }}>
-        {/* Seção de referência ao trabalho */}
-        <div className="work-reference mb-5">
-          <h2 className="text-white mb-3" style={{ fontSize: '1.8rem', fontWeight: 600 }}>
+        {/* Informações do projeto e membros (fixas no topo do conteúdo) */}
+        <div className="project-info mb-5">
+          <h2 className="text-white mb-0" style={{ fontSize: '1.5rem', fontWeight: 600, margin: 0 }}>
             ML TECH DATATHON - Fase Final - Engenharia em Machine Learning - 2025
           </h2>
-          <p className="text-white mb-2" style={{ fontSize: '1.2rem', fontWeight: 500 }}>
+          <p className="text-white mb-0" style={{ fontSize: '1rem', fontWeight: 500 }}>
             Entrega para a etapa final do curso Datathon 2025
           </p>
-          <p className="text-white" style={{ fontSize: '1rem', fontWeight: 400 }}>
+          <p className="text-white" style={{ fontSize: '0.9rem', fontWeight: 400 }}>
             Membros do Grupo:
-            <br />- Leonardo T Pires: RM355401
-            <br />- Felipe de Paula G.: RM355402
-            <br />- Jorge Guilherme D. W: RM355849
+            <br />- Leonardo T Pires: <a href="https://github.com/leonardopires" target="_blank" rel="noopener noreferrer" className="text-white">RM355401</a>
+            <br />- Felipe de Paula G.: <a href="https://github.com/Felipe-DePaula" target="_blank" rel="noopener noreferrer" className="text-white">RM355402</a>
+            <br />- Jorge Guilherme D. W: <a href="https://github.com/JorgeWald" target="_blank" rel="noopener noreferrer" className="text-white">RM355849</a>
           </p>
+          {/* Logo FIAP + Alura alinhado à direita */}
+          <div style={{ marginTop: '10px', textAlign: 'right' }}>
+            <a href="https://www.fiap.com.br/" target="_blank" rel="noopener noreferrer">
+              <img src="https://postech.fiap.com.br/svg/fiap-plus-alura.svg" alt="FIAP + Alura" className="logo-img" style={{ width: '150px', height: 'auto' }} />
+            </a>
+          </div>
         </div>
 
-        <h1 className="text-white mb-4 title">Recomendador G1</h1>
+        <h1 className="text-white mb-4 title">{activeKey === 'recommendations' ? 'Recomendações' : 'Gerenciamento'}</h1>
 
         {activeKey === 'recommendations' && (
           <div>
@@ -183,7 +208,16 @@ const App: React.FC = () => {
                   value={userId}
                   onChange={(e) => setUserId(e.target.value)}
                   className="form-control"
+                  style={{ maxWidth: '400px', transition: 'background-color 0.3s ease, border-color 0.3s ease', transitionDelay: '0.2s' }} // Delay para hover e click
                   onClick={() => logInteraction(userId)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#444444';
+                    e.currentTarget.style.borderColor = '#FFFFFF';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '';
+                    e.currentTarget.style.borderColor = '';
+                  }}
                 />
               </Form.Group>
               <Form.Group controlId="keywords" className="mb-3">
@@ -196,13 +230,35 @@ const App: React.FC = () => {
                   value={keywords}
                   onChange={(e) => setKeywords(e.target.value)}
                   className="form-control"
+                  style={{ maxWidth: '400px', transition: 'background-color 0.3s ease, border-color 0.3s ease', transitionDelay: '0.2s' }} // Delay para hover e click
                   onClick={() => logInteraction(keywords)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#444444';
+                    e.currentTarget.style.borderColor = '#FFFFFF';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '';
+                    e.currentTarget.style.borderColor = '';
+                  }}
                 />
-                <Form.Text className="text-muted form-text">
+                <Form.Text className="text-white form-text">
                   Insira palavras-chave para personalizar recomendações iniciais.
                 </Form.Text>
               </Form.Group>
-              <Button variant="primary" onClick={fetchRecommendations} className="btn-primary mt-2 d-flex align-items-center">
+              <Button
+                variant="primary"
+                onClick={fetchRecommendations}
+                className="btn-primary mt-2 d-flex align-items-center"
+                style={{ transition: 'background-color 0.3s ease, border-color 0.3s ease', transitionDelay: '0.2s' }} // Delay para hover e click
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#0056b3';
+                  e.currentTarget.style.borderColor = '#FFFFFF';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '';
+                  e.currentTarget.style.borderColor = '';
+                }}
+              >
                 <PlayArrowIcon className="me-2" /> Obter Recomendações
               </Button>
             </Form>
@@ -219,14 +275,23 @@ const App: React.FC = () => {
                 <div className="row">
                   {recommendations.map((rec, index) => (
                     <div className="col-md-4 mb-3" key={rec.page}>
-                      <Card className="card border-dark shadow-dark" style={{ background: '#2d2d2d' }}>
+                      <Card className="card border-dark shadow-dark" style={{ background: '#000000' }}>
                         <Card.Body>
                           <Card.Title className="text-white card-title">{rec.title}</Card.Title>
-                          <Card.Text className="text-light card-text">
+                          <Card.Text className="text-white card-text">
                             <strong>ID:</strong> {rec.page}<br />
                             <strong>Data:</strong> {rec.date ? new Date(rec.date).toLocaleDateString() : 'Data não disponível'}<br />
                             <strong>Link:</strong> {rec.link !== 'N/A' ? (
-                              <a href={rec.link} target="_blank" rel="noopener noreferrer" onClick={() => logInteraction(rec.page)} className="text-primary">
+                              <a
+                                href={rec.link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() => logInteraction(rec.page)}
+                                className="text-white"
+                                style={{ transition: 'color 0.3s ease', transitionDelay: '0.2s' }} // Delay para hover
+                                onMouseEnter={(e) => e.currentTarget.style.color = '#66b0ff'}
+                                onMouseLeave={(e) => e.currentTarget.style.color = '#FFFFFF'}
+                              >
                                 {rec.link}
                               </a>
                             ) : 'Não disponível'}
@@ -237,7 +302,7 @@ const App: React.FC = () => {
                   ))}
                 </div>
               ) : (
-                <p className="text-muted text-no-recommendations">Nenhuma recomendação carregada ainda.</p>
+                <p className="text-white text-no-recommendations">Nenhuma recomendação carregada ainda.</p>
               )}
             </div>
           </div>
@@ -259,7 +324,16 @@ const App: React.FC = () => {
                   value={subsampleFrac}
                   onChange={(e) => setSubsampleFrac(e.target.value)}
                   className="form-control"
+                  style={{ maxWidth: '400px', transition: 'background-color 0.3s ease, border-color 0.3s ease', transitionDelay: '0.2s' }} // Delay para hover e click
                   onClick={() => logInteraction(subsampleFrac)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#444444';
+                    e.currentTarget.style.borderColor = '#FFFFFF';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '';
+                    e.currentTarget.style.borderColor = '';
+                  }}
                 />
               </Form.Group>
               <Form.Group controlId="forceRetrain" className="mb-3">
@@ -272,16 +346,29 @@ const App: React.FC = () => {
                   onClick={() => logInteraction('forceRetrain')}
                 />
               </Form.Group>
-              <Button variant="primary" onClick={startTraining} className="btn-primary mt-2 d-flex align-items-center">
+              <Button
+                variant="primary"
+                onClick={startTraining}
+                className="btn-primary mt-2 d-flex align-items-center"
+                style={{ transition: 'background-color 0.3s ease, border-color 0.3s ease', transitionDelay: '0.2s' }} // Delay para hover e click
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#0056b3';
+                  e.currentTarget.style.borderColor = '#FFFFFF';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '';
+                  e.currentTarget.style.borderColor = '';
+                }}
+              >
                 <PlayArrowIcon className="me-2" /> Iniciar Treinamento
               </Button>
-              {/* Iframe para o Swagger UI na aba Gerenciamento */}
+              {/* Iframe para o Swagger UI na aba Gerenciamento com fundo branco */}
               <div className="mt-4">
                 <iframe
                   src="http://localhost:8000/docs"
                   title="Swagger UI"
                   className="swagger-iframe"
-                  style={{ width: '100%', height: '600px', border: 'none', borderRadius: '5px' }}
+                  style={{ width: '100%', height: '600px', border: 'none', borderRadius: '5px', background: '#FFFFFF' }}
                 />
               </div>
             </Form>
@@ -290,16 +377,16 @@ const App: React.FC = () => {
       </Container>
 
       {/* Sidebar de logs no canto inferior com dark mode */}
-      <div className="bg-dark sidebar-bottom" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '20%', zIndex: 1000, boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.3)', background: '#1a1a1a' }}>
-        <h5 className="mb-2 text-light logs-title">Logs do Servidor</h5>
+      <div className="bg-dark sidebar-bottom" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '20%', zIndex: 1000, boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.5)', background: '#000000' }}>
+        <h5 className="mb-2 text-white logs-title">Logs do Servidor</h5>
         {logs.length > 0 ? (
           <div ref={logsRef} className="logs-content" style={{ maxHeight: '80%', overflowY: 'auto', borderTop: '1px solid #444', padding: '10px' }}>
             {logs.map((log, index) => (
-              <p key={index} className="log-entry text-light" style={{ margin: '0', whiteSpace: 'pre-wrap', fontSize: '0.9rem' }}>{log}</p>
+              <p key={index} className="log-entry text-white" style={{ margin: '0', whiteSpace: 'pre-wrap', fontSize: '0.9rem' }}>{log}</p>
             ))}
           </div>
         ) : (
-          <p className="text-muted no-logs">Nenhum log disponível.</p>
+          <p className="text-white no-logs">Nenhum log disponível.</p>
         )}
       </div>
     </div>

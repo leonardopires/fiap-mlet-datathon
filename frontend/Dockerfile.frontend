@@ -7,7 +7,7 @@ COPY package.json package-lock.json* ./
 
 # Instale todas as dependências listadas no package.json, incluindo Material-UI e tipos
 RUN npm install @mui/icons-material @mui/material @emotion/react @emotion/styled
-RUN npm install --save-dev @types/mui @types/react @types/react-dom @mui/types
+RUN npm install --save-dev @types/react @types/react-dom @mui/types
 RUN npm install --legacy-peer-deps
 
 # Copie o restante dos arquivos do frontend
