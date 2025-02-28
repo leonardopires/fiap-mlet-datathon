@@ -1,5 +1,7 @@
 import logging
-from fastapi import FastAPI
+import sys
+import uvicorn
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import time
@@ -14,27 +16,28 @@ from src.preprocessor import Preprocessor
 from src.trainer import Trainer
 from src.predictor import Predictor
 
-# Configura o logger para mostrar mensagens úteis com data e hora
+# Configura o logger raiz para capturar todos os logs, incluindo os do Uvicorn
+logging.basicConfig(
+    level=logging.INFO,
+    format='recomendador-g1 | %(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        RotatingFileHandler(os.path.join('logs', 'app.log'), maxBytes=50 * 1024 * 1024, backupCount=5),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+# Obtém o logger raiz
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+
+# Configura o logger do Uvicorn para usar o mesmo handler
+uvicorn_logger = logging.getLogger('uvicorn')
+uvicorn_logger.handlers = root_logger.handlers
+uvicorn_logger.setLevel(logging.INFO)
+uvicorn_logger.propagate = False  # Evita propagação duplicada
+
+# Obtém o logger para o módulo atual
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-
-# Define o diretório e o arquivo onde os logs serão salvos
-log_dir = 'logs'
-os.makedirs(log_dir, exist_ok=True)
-log_file = os.path.join(log_dir, 'app.log')
-
-# Configura um RotatingFileHandler para salvar logs em arquivo
-file_handler = RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=5)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(formatter)
-
-# Configura o logging para usar o FileHandler e também mostrar no console
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(formatter)
-logger.handlers = []
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
-
 
 class APIServer:
     def __init__(self):
@@ -45,7 +48,7 @@ class APIServer:
         )
         self.app.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"],
+            allow_origins=["http://localhost:3000"],
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
@@ -68,7 +71,6 @@ class APIServer:
         @self.app.post("/train")
         async def train_model_endpoint(request: TrainRequest = None):
             import os
-            from fastapi import HTTPException
             start_time = time.time()
             logger.info("Iniciando treinamento via endpoint")
             subsample_frac = request.subsample_frac if request else None
@@ -116,15 +118,17 @@ class APIServer:
             elapsed = time.time() - start_time
             logger.info(f"Predição concluída em {elapsed:.2f} segundos")
             return {"user_id": request.user_id, "acessos_futuros": predictions}
+
         @self.app.get("/logs")
         async def get_logs():
             start_time = time.time()
             logger.info("Requisição para obter logs recebida")
             log_lines = []
             try:
-                with open(log_file, 'r', encoding='utf-8') as f:
+                with open(os.path.join('logs', 'app.log'), 'r', encoding='utf-8') as f:
                     log_lines = f.readlines()
                 log_lines = [line.strip() for line in log_lines if line.strip()]
+                log_lines = log_lines[-2000:] if len(log_lines) > 2000 else log_lines
             except FileNotFoundError:
                 logger.warning(f"Arquivo de log {log_file} não encontrado ainda.")
                 log_lines = ["Nenhum log disponível ainda."]
@@ -132,5 +136,9 @@ class APIServer:
                 logger.error(f"Erro ao ler logs: {e}")
                 log_lines = ["Erro ao carregar logs do servidor."]
             elapsed = time.time() - start_time
-            logger.info(f"Logs retornados em {elapsed:.2f} segundos")
+            logger.info(f"Logs retornados em {elapsed:.2f} segundos (total: {len(log_lines)} logs)")
             return {"logs": log_lines}
+
+if __name__ == "__main__":
+    server = APIServer()
+    uvicorn.run(server.app, host="0.0.0.0", port=8000, log_config=None)

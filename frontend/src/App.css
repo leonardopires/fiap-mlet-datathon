@@ -1,3 +1,233 @@
+/* src/App.css */
+
+/* Estilos gerais para o corpo da aplicação */
+body {
+  font-family: 'Poppins', sans-serif; /* Fonte moderna e legível, substitui Arial */
+  background-color: #f5f7fa; /* Fundo mais suave e profissional */
+  margin: 0;
+  padding: 0;
+  color: #1a1a1a; /* Texto escuro mais legível */
+  line-height: 1.6; /* Melhor legibilidade */
+}
+
+/* Container principal da aplicação */
+.app-container {
+  height: 100vh;
+  overflow: hidden; /* Evita rolagem desnecessária no corpo */
+}
+
+/* Sidebar esquerda (ícones) - Design minimalista e moderno */
+.sidebar-left {
+  width: 60px;
+  min-height: 100vh;
+  background-color: #2c3e50; /* Azul escuro mais sofisticado */
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.15); /* Sombra mais suave e visível */
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 20px; /* Espaço no topo para melhor visualização */
+}
+
+.icon-nav {
+  background-color: #3498db; /* Azul mais vibrante para ícones */
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 10px 0; /* Espaço entre ícones */
+  transition: background-color 0.3s ease; /* Animação suave no hover */
+  color: white; /* Cor do ícone (Material-UI já lida com isso) */
+}
+
+.icon-nav:hover {
+  background-color: #2980b9; /* Azul mais escuro no hover */
+}
+
+/* Conteúdo principal - Design limpo e espaçoso */
+.main-content {
+  margin-left: 60px; /* Ajuste para sidebar esquerda */
+  max-width: 70%;
+  padding: 30px; /* Mais padding para um design mais espaçoso */
+  overflow-y: auto; /* Permite rolagem se necessário */
+}
+
+.title {
+  font-weight: 700; /* Negrito mais forte */
+  font-size: 2.8rem; /* Título maior para destaque */
+  color: #2c3e50; /* Cor consistente com a sidebar */
+  margin-bottom: 20px; /* Mais espaço abaixo do título */
+  text-align: left; /* Alinhamento à esquerda para profissionalismo */
+}
+
+.subtitle {
+  font-weight: 600; /* Negrito médio */
+  font-size: 1.8rem; /* Subtítulo maior para hierarquia */
+  color: #2c3e50;
+  margin-bottom: 15px;
+  text-align: left;
+}
+
+/* Formulários e inputs - Design moderno e interativo */
+.form-label {
+  font-size: 1.1rem; /* Tamanho maior para legibilidade */
+  color: #2c3e50;
+  font-weight: 500; /* Negrito médio para labels */
+  margin-bottom: 5px; /* Menor espaçamento para compactação */
+}
+
+.form-control {
+  border-color: #3498db; /* Cor primária consistente */
+  border-radius: 8px; /* Bordas mais arredondadas */
+  box-shadow: none;
+  padding: 10px 12px; /* Mais padding interno para conforto */
+  font-size: 1rem; /* Tamanho padrão de fonte */
+  transition: border-color 0.3s ease, box-shadow 0.3s ease; /* Animações suaves */
+}
+
+.form-control:focus {
+  border-color: #2980b9; /* Cor mais escura no foco */
+  box-shadow: 0 0 8px rgba(52, 152, 219, 0.4); /* Sombra mais visível no foco */
+  outline: none; /* Remove outline padrão */
+}
+
+.form-text {
+  font-size: 0.95rem; /* Tamanho ligeiramente maior */
+  color: #7f8c8d; /* Cinza mais suave para texto auxiliar */
+  margin-top: 5px;
+}
+
+/* Botões - Design moderno e interativo */
+.btn-primary {
+  background-color: #3498db; /* Cor primária vibrante */
+  border-color: #3498db;
+  border-radius: 8px; /* Bordas mais arredondadas */
+  padding: 10px 20px; /* Mais padding para botões maiores */
+  font-size: 1rem; /* Tamanho de fonte consistente */
+  font-weight: 500; /* Negrito médio */
+  transition: background-color 0.3s ease, border-color 0.3s ease; /* Animação suave */
+}
+
+.btn-primary:hover {
+  background-color: #2980b9; /* Cor mais escura no hover */
+  border-color: #2980b9;
+}
+
+.btn-info {
+  background-color: #1abc9c; /* Verde turquesa moderno */
+  border-color: #1abc9c;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.btn-info:hover {
+  background-color: #16a085; /* Verde mais escuro no hover */
+  border-color: #16a085;
+}
+
+/* Cards - Design elegante e profissional */
+.card {
+  border-color: #3498db;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); /* Sombra mais pronunciada */
+  border-radius: 10px; /* Bordas mais arredondadas */
+  transition: transform 0.3s ease, box-shadow 0.3s ease; /* Animação suave */
+}
+
+.card:hover {
+  transform: translateY(-5px); /* Efeito de elevação no hover */
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15); /* Sombra mais forte no hover */
+}
+
+.card-title {
+  color: #2c3e50;
+  font-weight: 600; /* Negrito médio */
+  font-size: 1.2rem; /* Tamanho maior para títulos de cards */
+}
+
+.card-text {
+  font-size: 1rem; /* Tamanho padrão para texto */
+  color: #1a1a1a;
+}
+
+/* Alerts - Design limpo e visível */
+.alert-danger {
+  background-color: #e74c3c; /* Vermelho mais vibrante */
+  color: white;
+  border-radius: 10px;
+  padding: 15px; /* Mais padding para destaque */
+  font-size: 1rem;
+  border: none; /* Remove borda padrão */
+  box-shadow: 0 2px 10px rgba(231, 76, 60, 0.2); /* Sombra suave */
+}
+
+/* Sidebar direita (logs) - Design profissional e funcional */
+.sidebar-right {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 30%;
+  background-color: #ffffff; /* Fundo branco para contraste */
+  border-left: 2px solid #e5e7eb; /* Borda mais fina e moderna */
+  box-shadow: -2px 0 10px rgba(0, 0, 0, 0.1); /* Sombra mais definida */
+  z-index: 1000;
+  padding: 20px; /* Mais padding para conforto */
+  overflow: hidden; /* Evita overflow desnecessário */
+}
+
+.logs-title {
+  color: #2c3e50;
+  font-weight: 600;
+  font-size: 1.4rem; /* Título maior para destaque */
+  margin-bottom: 15px;
+}
+
+.logs-content {
+  max-height: 90vh;
+  overflow-y: auto;
+  scrollbar-width: thin; /* Barra de rolagem fina para navegadores modernos */
+  scrollbar-color: #3498db #f5f7fa; /* Cor da barra de rolagem */
+}
+
+.logs-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.logs-content::-webkit-scrollbar-track {
+  background: #f5f7fa;
+  border-radius: 10px;
+}
+
+.logs-content::-webkit-scrollbar-thumb {
+  background-color: #3498db;
+  border-radius: 10px;
+  border: 2px solid #f5f7fa;
+}
+
+.log-entry {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.95rem; /* Tamanho ligeiramente maior */
+  color: #1a1a1a;
+  line-height: 1.4; /* Melhor legibilidade */
+  padding: 5px 0; /* Espaço entre linhas de logs */
+}
+
+.no-logs, .text-no-recommendations {
+  font-size: 1rem;
+  color: #7f8c8d; /* Cinza mais suave */
+  padding: 10px 0;
+}
+
+/* Estilos do CSS original mantidos e adaptados para o novo design */
 .App {
   text-align: center;
 }
@@ -34,5 +264,84 @@
   }
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Media Queries para Responsividade */
+@media (max-width: 768px) {
+  .sidebar-left {
+    width: 50px; /* Sidebar mais fina em telas menores */
+  }
+
+  .icon-nav {
+    width: 30px;
+    height: 30px;
+  }
+
+  .main-content {
+    margin-left: 50px;
+    max-width: 100%;
+    padding: 15px;
+  }
+
+  .title {
+    font-size: 2rem;
+  }
+
+  .subtitle {
+    font-size: 1.4rem;
+  }
+
+  .sidebar-right {
+    width: 40%; /* Sidebar de logs mais larga em telas menores */
+    padding: 15px;
+  }
+
+  .logs-content {
+    max-height: 70vh;
+  }
+
+  .card {
+    margin-bottom: 15px;
+  }
+}
+
+@media (max-width: 480px) {
+  .sidebar-left {
+    display: none; /* Oculta sidebar em telas muito pequenas */
+  }
+
+  .main-content {
+    margin-left: 0;
+    padding: 10px;
+  }
+
+  .sidebar-right {
+    width: 100%; /* Logs ocupam toda a tela em dispositivos móveis */
+    position: relative; /* Remove posição fixa em telas pequenas */
+    top: auto;
+    right: auto;
+    bottom: auto;
+    box-shadow: none;
+    border-left: none;
+    border-top: 2px solid #e5e7eb;
+    padding: 10px;
+  }
+
+  .logs-content {
+    max-height: 50vh;
+  }
+
+  .title {
+    font-size: 1.8rem;
+  }
+
+  .subtitle {
+    font-size: 1.2rem;
+  }
+
+  .form-control, .btn-primary, .btn-info {
+    font-size: 0.9rem;
+    padding: 8px 12px;
   }
 }
