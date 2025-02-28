@@ -22,7 +22,6 @@ cd fiap-mlet-datathon
 ### 2. Execute o Script de Instalação
 O script de instalação automatiza a configuração do ambiente. Escolha o script para seu sistema:
 
-
 #### Windows
 ```powershell
 .\install.ps1
@@ -133,21 +132,21 @@ Construa a imagem Docker e inicie o serviço:
 docker-compose up --build
 ```
 - O script `recomendador.py` será executado automaticamente dentro do container.
-- Ele gera `submission.csv` e inicia a API em `http://localhost:8000`.
+- Ele gera `submission.csv` e inicia a API em `http://localhost:3000`.
 - O volume `.:/app` monta todos os arquivos do projeto (código, dados, estáticos), e o parâmetro `--reload` no Uvicorn permite que alterações em `recomendador.py` sejam aplicadas sem rebuild; para mudanças em `static/index.html`, basta atualizar a página no navegador.
 
 ### 4. Teste a API
 Com o container rodando, você pode testar a API de algumas formas:
 
 #### Usando Swagger UI
-Acesse a interface Swagger em `http://localhost:8000/docs` para testar a API interativamente:
-1. Abra `http://localhost:8000/docs` no navegador.
+Acesse a interface Swagger em `http://localhost:3000/docs` para testar a API interativamente:
+1. Abra `http://localhost:3000/docs` no navegador.
 2. Clique em `POST /predict`.
 3. Clique em "Try it out".
 4. Insira um `user_id` (ex.: `e25fbee3a42d45a2914f9b061df3386b2ded2d8cc1f3d4b901419051126488b9`) e clique em "Execute".
 
 #### Usando o Microsite
-Acesse o microsite em `http://localhost:8000/`, insira um `user_id` e clique em "Obter Recomendações" para ver as predições em uma interface simples.
+Acesse o microsite em `http://localhost:3000/`, insira um `user_id` e clique em "Obter Recomendações" para ver as predições em uma interface simples.
 
 #### Usando Curl
 Teste via terminal:
