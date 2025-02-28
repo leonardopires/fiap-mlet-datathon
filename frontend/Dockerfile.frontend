@@ -5,13 +5,8 @@ WORKDIR /app
 # Copie o package.json e package-lock.json (se existir) para instalar dependências
 COPY package.json package-lock.json* ./
 
-# Instale todas as dependências, incluindo o Material-UI Icons, dependências relacionadas, e typeface-poppins
-RUN npm install \
-    && npm install @mui/icons-material @mui/material @emotion/react @emotion/styled \
-    && npm install typeface-poppins
-
-# Para TypeScript, instale os tipos necessários
-RUN npm install --save-dev @types/react @types/react-dom
+# Instale todas as dependências listadas no package.json
+RUN npm install --legacy-peer-deps
 
 # Copie o restante dos arquivos do frontend
 COPY . .
