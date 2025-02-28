@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -6,7 +7,6 @@ from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import time
 from logging.handlers import RotatingFileHandler
-import os
 from .state_manager import StateManager
 from .data_initializer import DataInitializer
 from .model_manager import ModelManager
@@ -16,12 +16,17 @@ from src.preprocessor import Preprocessor
 from src.trainer import Trainer
 from src.predictor import Predictor
 
+# Define o diretório e o arquivo onde os logs serão salvos
+log_dir = 'logs'
+os.makedirs(log_dir, exist_ok=True)  # Cria o diretório 'logs' se não existir
+log_file = os.path.join(log_dir, 'app.log')
+
 # Configura o logger raiz para capturar todos os logs, incluindo os do Uvicorn
 logging.basicConfig(
     level=logging.INFO,
     format='recomendador-g1 | %(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        RotatingFileHandler(os.path.join('logs', 'app.log'), maxBytes=50 * 1024 * 1024, backupCount=5),
+        RotatingFileHandler(log_file, maxBytes=50 * 1024 * 1024, backupCount=5),
         logging.StreamHandler(sys.stdout)
     ]
 )
