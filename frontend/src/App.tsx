@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Container, Form, Button, Card, Alert, Nav } from 'react-bootstrap';
 import axios from 'axios';
+import DescriptionIcon from '@mui/icons-material/Description'; // Para labels de ID e Keywords
+import PlayArrowIcon from '@mui/icons-material/PlayArrow'; // Corrigido para o botão "Iniciar Treinamento" e "Obter Recomendações"
 import NewspaperIcon from '@mui/icons-material/Newspaper'; // Recomendações
 import SettingsIcon from '@mui/icons-material/Settings'; // Gerenciamento
-import TerminalIcon from '@mui/icons-material/Terminal'; // Logs
-import DescriptionIcon from '@mui/icons-material/Description'; // Para labels de ID e Keywords
-import PlayArrowIcon from '@mui/icons-material/PlayArrow'; // Corrigido para o botão "Iniciar Treinamento"
-import InfoIcon from '@mui/icons-material/Info'; // Para botões de info
 
 interface Recommendation {
   page: string;
@@ -16,6 +14,7 @@ interface Recommendation {
 }
 
 const App: React.FC = () => {
+  const [activeKey, setActiveKey] = useState<string>('recommendations'); // Adiciona o estado para controlar a navegação
   const [userId, setUserId] = useState<string>('');
   const [keywords, setKeywords] = useState<string>('');
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
@@ -41,7 +40,7 @@ const App: React.FC = () => {
       const response = await axios.post('http://localhost:8000/predict', payload);
       setRecommendations(response.data.acessos_futuros);
       setErrorMessage('');
-      console.log('Resposta da API:', response.data); // Usar 'response' para evitar o aviso
+      console.log('Resposta da API:', response.data);
     } catch (error: any) {
       console.error('Erro ao obter recomendações:', error);
       if (error.response && error.response.status === 400) {
@@ -117,16 +116,16 @@ const App: React.FC = () => {
   }, [logs]);
 
   return (
-    <div className="d-flex vh-100 app-container" style={{ background: 'none' }}>
-      {/* Logo FIAP no topo */}
-      <div className="fiap-logo">
+    <div className="d-flex vh-100 app-container" style={{ background: 'linear-gradient(to bottom, #1a1a1a, #2d2d2d)', minHeight: '100vh' }}>
+      {/* Logo FIAP + Alura no canto superior esquerdo */}
+      <div className="fiap-logo" style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 1001 }}>
         <a href="https://www.fiap.com.br/" target="_blank" rel="noopener noreferrer">
-          <img src="https://postech.fiap.com.br/svg/fiap-plus-alura.svg" alt="FIAP + Alura" className="logo-img" />
+          <img src="https://postech.fiap.com.br/svg/fiap-plus-alura.svg" alt="FIAP + Alura" className="logo-img" style={{ width: '150px', height: 'auto' }} />
         </a>
       </div>
 
       {/* Sidebar de ícones no canto esquerdo */}
-      <div className="bg-dark sidebar-left">
+      <div className="bg-dark sidebar-left" style={{ width: '60px', background: '#1a1a1a' }}>
         <Nav variant="pills" className="flex-column">
           <Nav.Item className="mb-2">
             <Nav.Link
@@ -184,7 +183,7 @@ const App: React.FC = () => {
                   value={userId}
                   onChange={(e) => setUserId(e.target.value)}
                   className="form-control"
-                  onClick={() => logInteraction(userId)} // Chama logInteraction ao clicar no input
+                  onClick={() => logInteraction(userId)}
                 />
               </Form.Group>
               <Form.Group controlId="keywords" className="mb-3">
@@ -197,7 +196,7 @@ const App: React.FC = () => {
                   value={keywords}
                   onChange={(e) => setKeywords(e.target.value)}
                   className="form-control"
-                  onClick={() => logInteraction(keywords)} // Chama logInteraction ao clicar no input
+                  onClick={() => logInteraction(keywords)}
                 />
                 <Form.Text className="text-muted form-text">
                   Insira palavras-chave para personalizar recomendações iniciais.
@@ -220,7 +219,7 @@ const App: React.FC = () => {
                 <div className="row">
                   {recommendations.map((rec, index) => (
                     <div className="col-md-4 mb-3" key={rec.page}>
-                      <Card className="card border-dark shadow-dark">
+                      <Card className="card border-dark shadow-dark" style={{ background: '#2d2d2d' }}>
                         <Card.Body>
                           <Card.Title className="text-white card-title">{rec.title}</Card.Title>
                           <Card.Text className="text-light card-text">
@@ -260,7 +259,7 @@ const App: React.FC = () => {
                   value={subsampleFrac}
                   onChange={(e) => setSubsampleFrac(e.target.value)}
                   className="form-control"
-                  onClick={() => logInteraction(subsampleFrac)} // Chama logInteraction ao clicar no input
+                  onClick={() => logInteraction(subsampleFrac)}
                 />
               </Form.Group>
               <Form.Group controlId="forceRetrain" className="mb-3">
@@ -270,22 +269,28 @@ const App: React.FC = () => {
                   checked={forceRetrain}
                   onChange={(e) => setForceRetrain(e.target.checked)}
                   className="text-white"
-                  onClick={() => logInteraction('forceRetrain')} // Chama logInteraction ao clicar no checkbox
+                  onClick={() => logInteraction('forceRetrain')}
                 />
               </Form.Group>
               <Button variant="primary" onClick={startTraining} className="btn-primary mt-2 d-flex align-items-center">
                 <PlayArrowIcon className="me-2" /> Iniciar Treinamento
               </Button>
-              <Button variant="info" href="http://localhost:8000/docs" target="_blank" className="btn-info mt-2 ms-2 d-flex align-items-center">
-                <InfoIcon className="me-2" /> Abrir Swagger UI
-              </Button>
+              {/* Iframe para o Swagger UI na aba Gerenciamento */}
+              <div className="mt-4">
+                <iframe
+                  src="http://localhost:8000/docs"
+                  title="Swagger UI"
+                  className="swagger-iframe"
+                  style={{ width: '100%', height: '600px', border: 'none', borderRadius: '5px' }}
+                />
+              </div>
             </Form>
           </div>
         )}
       </Container>
 
       {/* Sidebar de logs no canto inferior com dark mode */}
-      <div className="bg-dark sidebar-bottom" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '20%', zIndex: 1000, boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.3)' }}>
+      <div className="bg-dark sidebar-bottom" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '20%', zIndex: 1000, boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.3)', background: '#1a1a1a' }}>
         <h5 className="mb-2 text-light logs-title">Logs do Servidor</h5>
         {logs.length > 0 ? (
           <div ref={logsRef} className="logs-content" style={{ maxHeight: '80%', overflowY: 'auto', borderTop: '1px solid #444', padding: '10px' }}>
@@ -296,9 +301,6 @@ const App: React.FC = () => {
         ) : (
           <p className="text-muted no-logs">Nenhum log disponível.</p>
         )}
-        <Button variant="light" onClick={fetchLogs} size="sm" className="btn-light mt-2 d-flex align-items-center">
-          <TerminalIcon className="me-2" /> Atualizar Logs
-        </Button>
       </div>
     </div>
   );
