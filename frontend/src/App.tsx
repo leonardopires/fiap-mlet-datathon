@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Container, Form, Button, Card, Alert, Nav } from 'react-bootstrap';
 import axios from 'axios';
-import NewspaperIcon from '@mui/icons-material/Newspaper'; // Ícone para Recomendações
-import SettingsIcon from '@mui/icons-material/Settings'; // Ícone para Gerenciamento
-import TerminalIcon from '@mui/icons-material/Terminal'; // Ícone para Logs (opcional)
+import DescriptionIcon from '@mui/icons-material/Description'; // Para labels de ID e Keywords
+import PlayArrowIcon from '@mui/icons-material/PlayArrow'; // Corrigido para o botão "Iniciar Treinamento" e "Obter Recomendações"
+import NewspaperIcon from '@mui/icons-material/Newspaper'; // Recomendações
+import SettingsIcon from '@mui/icons-material/Settings'; // Gerenciamento
 
 interface Recommendation {
   page: string;
@@ -13,15 +14,14 @@ interface Recommendation {
 }
 
 const App: React.FC = () => {
+  const [activeKey, setActiveKey] = useState<string>('recommendations'); // Estado para controlar a navegação
   const [userId, setUserId] = useState<string>('');
   const [keywords, setKeywords] = useState<string>('');
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
   const [subsampleFrac, setSubsampleFrac] = useState<string>('');
   const [forceRetrain, setForceRetrain] = useState<boolean>(false);
-  const [trainStatus, setTrainStatus] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [activeKey, setActiveKey] = useState<string>('recommendations');
 
   const logsRef = useRef<HTMLDivElement>(null);
 
@@ -40,6 +40,7 @@ const App: React.FC = () => {
       const response = await axios.post('http://localhost:8000/predict', payload);
       setRecommendations(response.data.acessos_futuros);
       setErrorMessage('');
+      console.log('Resposta da API:', response.data);
     } catch (error: any) {
       console.error('Erro ao obter recomendações:', error);
       if (error.response && error.response.status === 400) {
@@ -59,17 +60,16 @@ const App: React.FC = () => {
         if (frac > 0 && frac <= 1) {
           payload.subsample_frac = frac;
         } else {
-          setTrainStatus('Erro: subsample_frac deve estar entre 0 e 1.');
+          alert('Erro: subsample_frac deve estar entre 0 e 1.');
           return;
         }
       }
       payload.force_retrain = forceRetrain;
-      const response = await axios.post('http://localhost:8000/train', payload);
-      setTrainStatus(response.data.message);
+      await axios.post('http://localhost:8000/train', payload);
       fetchLogs();
     } catch (error) {
       console.error('Erro ao iniciar treinamento:', error);
-      setTrainStatus('Erro ao iniciar treinamento.');
+      alert('Erro ao iniciar treinamento.');
     }
   };
 
@@ -83,8 +83,8 @@ const App: React.FC = () => {
         scroll_percentage: 50,
         timestamp: Date.now()
       };
-      const response = await axios.post('http://localhost:8000/log_interaction', interaction);
-      console.log(response.data.message);
+      await axios.post('http://localhost:8000/log_interaction', interaction);
+      console.log('Interação registrada com sucesso');
     } catch (error) {
       console.error('Erro ao registrar interação:', error);
     }
@@ -116,15 +116,29 @@ const App: React.FC = () => {
   }, [logs]);
 
   return (
-    <div className="d-flex vh-100 app-container">
-      {/* Sidebar de ícones no canto esquerdo */}
-      <div className="bg-primary sidebar-left">
+    <div className="d-flex vh-100 app-container" style={{ background: 'linear-gradient(to bottom, #000000, #1b1f23)', minHeight: '100vh' }}>
+      {/* Barra lateral de ícones no canto esquerdo */}
+      <div className="bg-dark sidebar-left" style={{ width: '60px', background: '#163747', paddingTop: '10px' }}>
         <Nav variant="pills" className="flex-column">
           <Nav.Item className="mb-2">
             <Nav.Link
               eventKey="recommendations"
               onClick={() => setActiveKey('recommendations')}
-              className="text-white icon-nav"
+              className="text-white icon-nav d-flex align-items-center justify-content-center"
+              data-label="Recomendações"
+              style={{
+                transition: 'background-color 0.3s ease, color 0.3s ease',
+                transitionDelay: '0.2s', // Delay de 200ms para hover e click
+                backgroundColor: activeKey === 'recommendations' ? '#2a4d62' : 'transparent', // Cor derivada de #163747 com leve clareamento
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#2a4d62';
+                e.currentTarget.style.color = '#FFFFFF';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = activeKey === 'recommendations' ? '#2a4d62' : 'transparent';
+                e.currentTarget.style.color = '#FFFFFF';
+              }}
             >
               <NewspaperIcon />
             </Nav.Link>
@@ -133,7 +147,21 @@ const App: React.FC = () => {
             <Nav.Link
               eventKey="management"
               onClick={() => setActiveKey('management')}
-              className="text-white icon-nav"
+              className="text-white icon-nav d-flex align-items-center justify-content-center"
+              data-label="Gerenciamento"
+              style={{
+                transition: 'background-color 0.3s ease, color 0.3s ease',
+                transitionDelay: '0.2s', // Delay de 200ms para hover e click
+                backgroundColor: activeKey === 'management' ? '#2a4d62' : 'transparent', // Cor derivada de #163747 com leve clareamento
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#2a4d62';
+                e.currentTarget.style.color = '#FFFFFF';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = activeKey === 'management' ? '#2a4d62' : 'transparent';
+                e.currentTarget.style.color = '#FFFFFF';
+              }}
             >
               <SettingsIcon />
             </Nav.Link>
@@ -141,38 +169,97 @@ const App: React.FC = () => {
         </Nav>
       </div>
 
-      {/* Conteúdo principal */}
-      <Container fluid className="flex-grow-1 p-4 main-content">
-        <h1 className="text-primary mb-4 title">Recomendador G1</h1>
+      {/* Conteúdo principal com informações do projeto e título dinâmico */}
+      <Container fluid className="flex-grow-1 p-4 main-content" style={{ background: 'none' }}>
+        {/* Informações do projeto e membros (fixas no topo do conteúdo) */}
+        <div className="project-info mb-5">
+          <h2 className="text-white mb-0" style={{ fontSize: '1.5rem', fontWeight: 600, margin: 0 }}>
+            ML TECH DATATHON - Fase Final - Engenharia em Machine Learning - 2025
+          </h2>
+          <p className="text-white mb-0" style={{ fontSize: '1rem', fontWeight: 500 }}>
+            Entrega para a etapa final do curso Datathon 2025
+          </p>
+          <p className="text-white" style={{ fontSize: '0.9rem', fontWeight: 400 }}>
+            Membros do Grupo:
+            <br />- Leonardo T Pires: <a href="https://github.com/leonardopires" target="_blank" rel="noopener noreferrer" className="text-white">RM355401</a>
+            <br />- Felipe de Paula G.: <a href="https://github.com/Felipe-DePaula" target="_blank" rel="noopener noreferrer" className="text-white">RM355402</a>
+            <br />- Jorge Guilherme D. W: <a href="https://github.com/JorgeWald" target="_blank" rel="noopener noreferrer" className="text-white">RM355849</a>
+          </p>
+          {/* Logo FIAP + Alura alinhado à direita */}
+          <div style={{ marginTop: '10px', textAlign: 'right' }}>
+            <a href="https://www.fiap.com.br/" target="_blank" rel="noopener noreferrer">
+              <img src="https://postech.fiap.com.br/svg/fiap-plus-alura.svg" alt="FIAP + Alura" className="logo-img" style={{ width: '150px', height: 'auto' }} />
+            </a>
+          </div>
+        </div>
+
+        <h1 className="text-white mb-4 title">{activeKey === 'recommendations' ? 'Recomendações' : 'Gerenciamento'}</h1>
 
         {activeKey === 'recommendations' && (
           <div>
             <Form>
               <Form.Group controlId="userId" className="mb-3">
-                <Form.Label className="text-dark form-label">ID do Usuário (UUID)</Form.Label>
+                <Form.Label className="text-white form-label d-flex align-items-center">
+                  <DescriptionIcon className="me-2" /> ID do Usuário (UUID)
+                </Form.Label>
                 <Form.Control
                   type="text"
                   placeholder="Digite o UUID do usuário"
                   value={userId}
                   onChange={(e) => setUserId(e.target.value)}
                   className="form-control"
+                  style={{ maxWidth: '400px', transition: 'background-color 0.3s ease, border-color 0.3s ease', transitionDelay: '0.2s' }} // Delay para hover e click
+                  onClick={() => logInteraction(userId)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#444444';
+                    e.currentTarget.style.borderColor = '#FFFFFF';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '';
+                    e.currentTarget.style.borderColor = '';
+                  }}
                 />
               </Form.Group>
               <Form.Group controlId="keywords" className="mb-3">
-                <Form.Label className="text-dark form-label">Palavras-Chave (separadas por vírgula, opcional)</Form.Label>
+                <Form.Label className="text-white form-label d-flex align-items-center">
+                  <DescriptionIcon className="me-2" /> Palavras-Chave (separadas por vírgula, opcional)
+                </Form.Label>
                 <Form.Control
                   type="text"
                   placeholder="Ex.: esportes, tecnologia"
                   value={keywords}
                   onChange={(e) => setKeywords(e.target.value)}
                   className="form-control"
+                  style={{ maxWidth: '400px', transition: 'background-color 0.3s ease, border-color 0.3s ease', transitionDelay: '0.2s' }} // Delay para hover e click
+                  onClick={() => logInteraction(keywords)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#444444';
+                    e.currentTarget.style.borderColor = '#FFFFFF';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '';
+                    e.currentTarget.style.borderColor = '';
+                  }}
                 />
-                <Form.Text className="text-muted form-text">
+                <Form.Text className="text-white form-text">
                   Insira palavras-chave para personalizar recomendações iniciais.
                 </Form.Text>
               </Form.Group>
-              <Button variant="primary" onClick={fetchRecommendations} className="btn-primary mt-2">
-                Obter Recomendações
+              <Button
+                variant="primary"
+                onClick={fetchRecommendations}
+                className="btn-primary mt-2 d-flex align-items-center"
+                style={{ transition: 'background-color 0.3s ease, border-color 0.3s ease', transitionDelay: '0.2s' }} // Delay para hover e click
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#0056b3';
+                  e.currentTarget.style.borderColor = '#FFFFFF';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '';
+                  e.currentTarget.style.borderColor = '';
+                }}
+              >
+                <PlayArrowIcon className="me-2" /> Obter Recomendações
               </Button>
             </Form>
 
@@ -183,19 +270,28 @@ const App: React.FC = () => {
             )}
 
             <div className="mt-4">
-              <h3 className="text-primary subtitle">Recomendações</h3>
+              <h3 className="text-white subtitle">Recomendações</h3>
               {recommendations.length > 0 ? (
                 <div className="row">
                   {recommendations.map((rec, index) => (
                     <div className="col-md-4 mb-3" key={rec.page}>
-                      <Card className="card border-primary shadow-sm">
+                      <Card className="card border-dark shadow-dark" style={{ background: '#000000' }}>
                         <Card.Body>
-                          <Card.Title className="text-primary card-title">{rec.title}</Card.Title>
-                          <Card.Text className="text-dark card-text">
+                          <Card.Title className="text-white card-title">{rec.title}</Card.Title>
+                          <Card.Text className="text-white card-text">
                             <strong>ID:</strong> {rec.page}<br />
                             <strong>Data:</strong> {rec.date ? new Date(rec.date).toLocaleDateString() : 'Data não disponível'}<br />
                             <strong>Link:</strong> {rec.link !== 'N/A' ? (
-                              <a href={rec.link} target="_blank" rel="noopener noreferrer" onClick={() => logInteraction(rec.page)} className="text-primary">
+                              <a
+                                href={rec.link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() => logInteraction(rec.page)}
+                                className="text-white"
+                                style={{ transition: 'color 0.3s ease', transitionDelay: '0.2s' }} // Delay para hover
+                                onMouseEnter={(e) => e.currentTarget.style.color = '#66b0ff'}
+                                onMouseLeave={(e) => e.currentTarget.style.color = '#FFFFFF'}
+                              >
                                 {rec.link}
                               </a>
                             ) : 'Não disponível'}
@@ -206,7 +302,7 @@ const App: React.FC = () => {
                   ))}
                 </div>
               ) : (
-                <p className="text-muted text-no-recommendations">Nenhuma recomendação carregada ainda.</p>
+                <p className="text-white text-no-recommendations">Nenhuma recomendação carregada ainda.</p>
               )}
             </div>
           </div>
@@ -216,7 +312,9 @@ const App: React.FC = () => {
           <div>
             <Form>
               <Form.Group controlId="subsampleFrac" className="mb-3">
-                <Form.Label className="text-dark form-label">Fração de Subamostragem (0 a 1, opcional)</Form.Label>
+                <Form.Label className="text-white form-label d-flex align-items-center">
+                  <DescriptionIcon className="me-2" /> Fração de Subamostragem (0 a 1, opcional)
+                </Form.Label>
                 <Form.Control
                   type="number"
                   step="0.1"
@@ -226,43 +324,70 @@ const App: React.FC = () => {
                   value={subsampleFrac}
                   onChange={(e) => setSubsampleFrac(e.target.value)}
                   className="form-control"
+                  style={{ maxWidth: '400px', transition: 'background-color 0.3s ease, border-color 0.3s ease', transitionDelay: '0.2s' }} // Delay para hover e click
+                  onClick={() => logInteraction(subsampleFrac)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#444444';
+                    e.currentTarget.style.borderColor = '#FFFFFF';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '';
+                    e.currentTarget.style.borderColor = '';
+                  }}
                 />
               </Form.Group>
               <Form.Group controlId="forceRetrain" className="mb-3">
                 <Form.Check
                   type="checkbox"
-                  label="Forçar Novo Treinamento"
+                  label={<span className="text-white d-flex align-items-center"><DescriptionIcon className="me-2" /> Forçar Novo Treinamento</span>}
                   checked={forceRetrain}
                   onChange={(e) => setForceRetrain(e.target.checked)}
-                  className="text-dark"
+                  className="text-white"
+                  onClick={() => logInteraction('forceRetrain')}
                 />
               </Form.Group>
-              <Button variant="primary" onClick={startTraining} className="btn-primary mt-2">
-                Iniciar Treinamento
+              <Button
+                variant="primary"
+                onClick={startTraining}
+                className="btn-primary mt-2 d-flex align-items-center"
+                style={{ transition: 'background-color 0.3s ease, border-color 0.3s ease', transitionDelay: '0.2s' }} // Delay para hover e click
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#0056b3';
+                  e.currentTarget.style.borderColor = '#FFFFFF';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '';
+                  e.currentTarget.style.borderColor = '';
+                }}
+              >
+                <PlayArrowIcon className="me-2" /> Iniciar Treinamento
               </Button>
-              <Button variant="info" href="http://localhost:8000/docs" target="_blank" className="btn-info mt-2 ms-2">
-                Abrir Swagger UI
-              </Button>
+              {/* Iframe para o Swagger UI na aba Gerenciamento com fundo branco */}
+              <div className="mt-4">
+                <iframe
+                  src="http://localhost:8000/docs"
+                  title="Swagger UI"
+                  className="swagger-iframe"
+                  style={{ width: '100%', height: '600px', border: 'none', borderRadius: '5px', background: '#FFFFFF' }}
+                />
+              </div>
             </Form>
           </div>
         )}
       </Container>
 
-      {/* Sidebar de logs na parte direita com auto-scroll */}
-      <div className="bg-light sidebar-right" style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: '30%' }}>
-        <h5 className="mb-2 text-primary logs-title">Logs do Servidor</h5>
+      {/* Sidebar de logs no canto inferior com dark mode */}
+      <div className="bg-dark sidebar-bottom" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '20%', zIndex: 1000, boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.5)', background: '#000000' }}>
+        <h5 className="mb-2 text-white logs-title">Logs do Servidor</h5>
         {logs.length > 0 ? (
-          <div ref={logsRef} className="logs-content" style={{ maxHeight: '90vh', overflowY: 'auto', borderLeft: '1px solid #ccc', padding: '10px' }}>
+          <div ref={logsRef} className="logs-content" style={{ maxHeight: '80%', overflowY: 'auto', borderTop: '1px solid #444', padding: '10px' }}>
             {logs.map((log, index) => (
-              <p key={index} className="log-entry" style={{ margin: '0', whiteSpace: 'pre-wrap', fontSize: '0.9rem', color: '#333' }}>{log}</p>
+              <p key={index} className="log-entry text-white" style={{ margin: '0', whiteSpace: 'pre-wrap', fontSize: '0.9rem' }}>{log}</p>
             ))}
           </div>
         ) : (
-          <p className="text-muted no-logs">Nenhum log disponível.</p>
+          <p className="text-white no-logs">Nenhum log disponível.</p>
         )}
-        <Button variant="primary" onClick={fetchLogs} size="sm" className="btn-primary mt-2">
-          Atualizar Logs
-        </Button>
       </div>
     </div>
   );

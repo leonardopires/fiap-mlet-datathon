@@ -25,6 +25,14 @@ class Predictor:
 
         top_indices = torch.topk(scores, 10).indices.cpu().numpy()
         top_news = self.noticias.iloc[top_indices]
-        predictions = [{"page": row['page'], "title": row['title'], "link": row['url']}
-                       for _, row in top_news.iterrows()]
+        predictions = [
+            {
+                "page": row['page'],
+                "title": row['title'],
+                "link": row['url'],
+                "date": row['date'].strftime("%Y-%m-%d") if pd.notna(row['date']) else None  # Conversão correta
+            }
+            for _, row in top_news.iterrows()
+        ]
+
         return predictions

@@ -2,10 +2,19 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
+# Ignore arquivos desnecessários no build
+COPY .dockerignore .
+
+# Copie apenas o requirements.txt e instale as dependências
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copie o arquivo api_server.py e outros arquivos necessários
+# Instale dependências adicionais para PyTorch e GPU (se necessário)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copie os arquivos do projeto (src e outros necessários)
 COPY src/ src/
 COPY . .
 
