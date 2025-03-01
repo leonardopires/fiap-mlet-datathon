@@ -171,12 +171,12 @@ class Trainer:
         news_embedding_dim = X_news.shape[1]
         model = RecommendationModel(user_embedding_dim, news_embedding_dim).to(device)
         criterion = nn.BCEWithLogitsLoss()  # Perda binária com logits, segura para autocast
-        optimizer = optim.Adam(model.parameters(), lr=0.001)  # Otimizador Adam
+        optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)  # Otimizador Adam com regularização L2
 
         # Treina o modelo na GPU com precisão mista e barra de progresso
         logger.info("Iniciando treinamento na GPU")
         start_time = time.time()
-        num_epochs = 50  # Número de épocas (ajustável)
+        num_epochs = 100  # Número de épocas (ajustável)
         scaler = torch.amp.GradScaler('cuda')  # Atualizado para nova API do PyTorch 2.6.0
 
         for epoch in tqdm(range(num_epochs), desc="Treinando épocas", unit="epoch"):
@@ -197,6 +197,8 @@ class Trainer:
                 total_loss += loss.item() * batch_X_user.size(0)
 
             avg_loss = total_loss / len(X_user)
+            logger.info(f"Epoch {epoch + 1}/{num_epochs}, Perda: {avg_loss:.4f}")
+
             if (epoch + 1) % 10 == 0:  # Log a cada 10 épocas
                 logger.info(f"Época {epoch + 1}/{num_epochs}, Perda Média: {avg_loss:.4f}")
 

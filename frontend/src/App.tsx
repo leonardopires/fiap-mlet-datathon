@@ -20,6 +20,8 @@ const App: React.FC = () => {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
   const [subsampleFrac, setSubsampleFrac] = useState<string>('');
+  const [forceRecalc, setForceRecalc] = useState<boolean>(false);
+  const [metrics, setMetrics] = useState<any>(null);
   const [forceRetrain, setForceRetrain] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
@@ -100,6 +102,17 @@ const App: React.FC = () => {
     } catch (error: unknown) {
       console.error('Erro ao obter logs:', error instanceof Error ? error.message : 'Erro desconhecido');
       setLogs(['Erro ao carregar logs do servidor.']);
+    }
+  };
+
+  const fetchMetrics = async () => {
+    try {
+      const response = await axios.get('http://localhost:8000/metrics', { params: { force_recalc: forceRecalc } });
+      setMetrics(response.data.metrics);
+      console.log('Métricas recebidas:', response.data.metrics);
+    } catch (error: any) {
+      console.error('Erro ao obter métricas:', error);
+      setMetrics({ error: 'Erro ao carregar métricas do servidor.' });
     }
   };
 
@@ -377,25 +390,51 @@ function extractDate(rec: Recommendation): string {
                   onClick={() => logInteraction('forceRetrain')}
                 />
               </Form.Group>
+              <Form.Group controlId="forceRecalc" className="mb-3">
+                <Form.Check
+                  type="checkbox"
+                  label={<span className="text-white d-flex align-items-center"><DescriptionIcon className="me-2" /> Forçar Recálculo de Métricas</span>}
+                  checked={forceRecalc}
+                  onChange={(e) => setForceRecalc(e.target.checked)}
+                  className="text-white"
+                />
+              </Form.Group>
               <Button
                 variant="primary"
                 onClick={startTraining}
                 className="btn-primary mt-2 d-flex align-items-center"
-                style={{
-                  transition: 'background-color 0.3s ease, border-color 0.3s ease',
-                  transitionDelay: '0.2s'
-                }} // Delay para hover e click
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#0056b3';
-                  e.currentTarget.style.borderColor = '#FFFFFF';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '';
-                  e.currentTarget.style.borderColor = '';
-                }}
+                style={{ transition: 'background-color 0.3s ease, border-color 0.3s ease', transitionDelay: '0.2s' }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#0056b3'; e.currentTarget.style.borderColor = '#FFFFFF'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = ''; e.currentTarget.style.borderColor = ''; }}
               >
-                <PlayArrowIcon className="me-2"/> Iniciar Treinamento
+                <PlayArrowIcon className="me-2" /> Iniciar Treinamento
               </Button>
+              <Button
+                variant="info"
+                onClick={fetchMetrics}
+                className="btn-info mt-2 ms-2 d-flex align-items-center"
+                style={{ transition: 'background-color 0.3s ease, border-color 0.3s ease', transitionDelay: '0.2s' }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#145523'; e.currentTarget.style.borderColor = '#FFFFFF'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = ''; e.currentTarget.style.borderColor = ''; }}
+              >
+                <PlayArrowIcon className="me-2" /> Obter Métricas
+              </Button>
+              {metrics && (
+                <div className="mt-4">
+                  <h3 className="text-white subtitle">Métricas de Qualidade</h3>
+                  {metrics.error ? (
+                    <Alert variant="danger">{metrics.error}</Alert>
+                  ) : (
+                    <pre className="text-white" style={{ background: '#2d2d2d', padding: '10px', borderRadius: '5px' }}>
+                      Precisão@10: {metrics.precision_at_k.toFixed(4)}<br />
+                      Recall@10: {metrics.recall_at_k.toFixed(4)}<br />
+                      MRR: {metrics.mrr.toFixed(4)}<br />
+                      ILS: {metrics.intra_list_similarity.toFixed(4)}<br />
+                      Cobertura: {(metrics.catalog_coverage * 100).toFixed(2)}%
+                    </pre>
+                  )}
+                </div>
+              )}
               {/* Iframe para o Swagger UI na aba Gerenciamento com fundo branco */}
               <div className="mt-4">
                 <iframe

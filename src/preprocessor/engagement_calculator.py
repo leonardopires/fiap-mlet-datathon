@@ -26,8 +26,8 @@ class EngagementCalculator:
         # - Cliques contam 30% (multiplica por 0.3)
         # - Tempo (convertido para segundos) conta 50% (divide por 1000 e multiplica por 0.5)
         # - Rolagem conta 20% (multiplica por 0.2)
-        engagement = (clicks * 0.3) + (time / 1000 * 0.5) + (scroll * 0.2)
-        return engagement
+        engagement = (clicks * 0.3) + (time / 1000 * 1.5) + (scroll * 0.2)  # Aumentar peso do tempo
+        return engagement / 10  # Normalizar para escala menor
 
     def calculate_recency(self, timestamp: int, max_timestamp: int) -> float:
         """

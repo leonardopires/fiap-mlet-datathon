@@ -30,7 +30,6 @@ class Predictor:
                 "page": row['page'],
                 "title": row['title'],
                 "link": row['url'],
-                "date": row['date'].strftime("%Y-%m-%d") if pd.notna(row['date']) else None  # Conversão correta
             }
             for _, row in top_news.iterrows()
         ]

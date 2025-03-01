@@ -3,6 +3,7 @@ from .state_manager import StateManager
 from .data_initializer import DataInitializer
 from .model_manager import ModelManager
 from .api_server import APIServer
+from .metrics_calculator import MetricsCalculator
 from .models import UserRequest, TrainRequest, PredictionResponse
 
 __all__ = [
@@ -12,5 +13,6 @@ __all__ = [
     'APIServer',
     'UserRequest',
     'TrainRequest',
-    'PredictionResponse'
+    'PredictionResponse',
+    'MetricsCalculator'
 ]

@@ -9,6 +9,7 @@ from logging.handlers import RotatingFileHandler
 import os
 from .state_manager import StateManager
 from .data_initializer import DataInitializer
+from .metrics_calculator import MetricsCalculator
 from .model_manager import ModelManager
 from .models import TrainRequest, UserRequest, PredictionResponse
 from src.data_loader import DataLoader
@@ -53,13 +54,14 @@ class APIServer:
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=["http://localhost:3000"],
+            allow_headers=["*"],
             allow_credentials=True,
             allow_methods=["*"],
-            allow_headers=["*"],
         )
         self.state = StateManager()
         self.data_initializer = DataInitializer(DataLoader(), Preprocessor())
         self.model_manager = ModelManager(Trainer(), Predictor)
+        self.metrics_calculator = MetricsCalculator(self.state)
         self.setup_routes()
 
     def setup_routes(self):
@@ -141,6 +143,18 @@ class APIServer:
             elapsed = time.time() - start_time
             return {"logs": log_lines}
 
+        @self.app.get("/metrics", response_model=dict)
+        async def get_metrics(force_recalc: bool = False):
+            start_time = time.time()
+            logger.info("Requisição para obter métricas recebida")
+            if not self.state.is_initialized():
+                raise HTTPException(status_code=500, detail="Modelo ou dados não carregados")
+            metrics = self.metrics_calculator.calculate_metrics(k=10, force_recalc=force_recalc)
+            elapsed = time.time() - start_time
+            logger.info(f"Métricas calculadas em {elapsed:.2f} segundos")
+            return {
+                "metrics": metrics
+            }
 if __name__ == "__main__":
     server = APIServer()
     uvicorn.run(server.app, host="0.0.0.0", port=8000, log_config=None)

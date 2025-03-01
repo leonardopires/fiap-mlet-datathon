@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class Preprocessor:
-    def __init__(self, model_name: str = 'paraphrase-multilingual-MiniLM-L12-v2', batch_size: int = 256):
+    def __init__(self, model_name: str = 'paraphrase-multilingual-MiniLM-L12-v2', batch_size: int = 64):
         """
         Inicializa o Preprocessor sem carregar o EmbeddingGenerator imediatamente.
 
