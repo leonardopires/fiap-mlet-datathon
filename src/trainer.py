@@ -236,3 +236,4 @@ class Trainer:
         logger.info("Nenhuma palavra-chave fornecida ou resultados encontrados; usando popularidade")
         popular_news = noticias.sort_values('issued', ascending=False).head(10)['page'].tolist()
         return popular_news
+
