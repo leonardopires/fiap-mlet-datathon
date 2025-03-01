@@ -20,6 +20,7 @@ class RecommendationModel(nn.Module):
     """
     Modelo de recomendação neural que combina embeddings de usuários e notícias.
     """
+
     def __init__(self, user_embedding_dim, news_embedding_dim, hidden_dim=128):
         """
         Inicializa o modelo com camadas densas para processar embeddings.
@@ -34,7 +35,7 @@ class RecommendationModel(nn.Module):
         self.user_layer = nn.Linear(user_embedding_dim, hidden_dim)  # Reduz embeddings de usuário
         self.relu = nn.ReLU()  # Função de ativação
         self.output_layer = nn.Linear(hidden_dim * 2, 1)  # Camada de saída para predição
-        self.sigmoid = nn.Sigmoid()  # Converte saída em probabilidade (0-1)
+        # self.sigmoid = nn.Sigmoid()  # Converte saída em probabilidade (0-1) [REMOVIDO para usar BCEWithLogitsLoss]
 
     def forward(self, user_emb, news_emb):
         """
@@ -45,13 +46,13 @@ class RecommendationModel(nn.Module):
             news_emb (torch.Tensor): Embedding da notícia.
 
         Returns:
-            torch.Tensor: Probabilidade de interação (0-1).
+            torch.Tensor: Logits (valores brutos) que serão transformados em probabilidade no BCEWithLogitsLoss.
         """
         user_out = self.user_layer(user_emb)
         news_out = self.news_layer(news_emb)
         combined = torch.cat((user_out, news_out), dim=1)  # Concatena os embeddings processados
         output = self.output_layer(self.relu(combined))
-        return self.sigmoid(output)
+        return output  # Retorna logits, sem Sigmoid!
 
 
 class Trainer:
@@ -237,3 +238,4 @@ class Trainer:
         logger.info("Nenhuma palavra-chave fornecida ou resultados encontrados; usando popularidade")
         popular_news = noticias.sort_values('issued', ascending=False).head(10)['page'].tolist()
         return popular_news
+
