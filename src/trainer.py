@@ -8,14 +8,13 @@ import torch.optim as optim
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
 import time
-import os  # Mantemos para cálculo dinâmico de batch_size, etc.
-
-# Ativa otimização para operações na GPU
-torch.backends.cudnn.benchmark = True
+import os
 
 # Configura o logger para exibir mensagens detalhadas
 logger = logging.getLogger(__name__)
 
+# Ativa otimização para operações na GPU
+torch.backends.cudnn.benchmark = True
 
 class RecommendationModel(nn.Module):
     """
@@ -37,8 +36,7 @@ class RecommendationModel(nn.Module):
         self.relu = nn.ReLU()  # Função de ativação
         self.output_layer = nn.Linear(hidden_dim * 2, 1)  # Camada de saída para predição
 
-        # Removemos a Sigmoid daqui, pois usaremos BCEWithLogitsLoss
-        # self.sigmoid = nn.Sigmoid()
+        # self.sigmoid = nn.Sigmoid()  # Converte saída em probabilidade (0-1) [COMENTADO: usar BCEWithLogitsLoss]
 
     def forward(self, user_emb, news_emb):
         """
@@ -49,14 +47,13 @@ class RecommendationModel(nn.Module):
             news_emb (torch.Tensor): Embedding da notícia.
 
         Returns:
-            torch.Tensor: Logits (valores brutos) que serão transformados em probabilidade no BCEWithLogitsLoss().
+            torch.Tensor: Logits (valores brutos) a serem usados com BCEWithLogitsLoss.
         """
         user_out = self.user_layer(user_emb)
         news_out = self.news_layer(news_emb)
         combined = torch.cat((user_out, news_out), dim=1)  # Concatena os embeddings processados
         output = self.output_layer(self.relu(combined))
         return output  # Retorna logits, sem Sigmoid!
-
 
 class Trainer:
     def train(self, interacoes, noticias, user_profiles, validation_file):
@@ -83,10 +80,7 @@ class Trainer:
         if device.type == "cuda":
             total_memory, _ = torch.cuda.mem_get_info()
             max_batch_size = max(32, min(4096, int(total_memory / (1024 * 1024 * 200))))  # Ajuste conservador
-            logger.info(
-                f"Memória da GPU disponível: {total_memory / (1024 * 1024 * 1024):.2f} GB. "
-                f"Batch size ajustado: {max_batch_size}"
-            )
+            logger.info(f"Memória da GPU disponível: {total_memory / (1024 * 1024 * 1024):.2f} GB. Batch size ajustado: {max_batch_size}")
         else:
             max_batch_size = 512  # Valor padrão para CPU
         batch_size = max_batch_size
@@ -105,9 +99,7 @@ class Trainer:
         news_column = 'history'
         if news_column not in validacao.columns:
             logger.error(
-                f"Coluna '{news_column}' não encontrada em validacao. "
-                f"Colunas disponíveis: {validacao.columns}"
-            )
+                f"Coluna '{news_column}' não encontrada em validacao. Colunas disponíveis: {validacao.columns}")
             raise KeyError(f"Coluna '{news_column}' não encontrada em {validation_file}")
 
         # Codifica os IDs das notícias para índices numéricos
@@ -136,19 +128,15 @@ class Trainer:
         logger.debug(f"Embeddings de usuários carregados: {user_embeddings.shape}. Elapsed: {elapsed:.2f} s")
 
         logger.debug("Preparando índices de usuários e notícias com barra de progresso")
-        X_user_indices = torch.tensor(
-            [user_id_to_idx[row['userId']] for _, row in
-             tqdm(validacao.iterrows(), total=len(validacao), desc="Preparando X_user")],
-            dtype=torch.long
-        ).to(device)
+        X_user_indices = torch.tensor([user_id_to_idx[row['userId']] for _, row in
+                                       tqdm(validacao.iterrows(), total=len(validacao), desc="Preparando X_user")],
+                                      dtype=torch.long).to(device)
         elapsed = time.time() - start_time
         logger.debug(f"Índices de usuários preparados: {X_user_indices.shape}. Elapsed: {elapsed:.2f} s")
 
-        X_news_indices = torch.tensor(
-            [news_page_to_idx[row[news_column]] for _, row in
-             tqdm(validacao.iterrows(), total=len(validacao), desc="Preparando X_news")],
-            dtype=torch.long
-        ).to(device)
+        X_news_indices = torch.tensor([news_page_to_idx[row[news_column]] for _, row in
+                                       tqdm(validacao.iterrows(), total=len(validacao), desc="Preparando X_news")],
+                                      dtype=torch.long).to(device)
         elapsed = time.time() - start_time
         logger.debug(f"Índices de notícias preparados: {X_news_indices.shape}. Elapsed: {elapsed:.2f} s")
 
@@ -159,7 +147,6 @@ class Trainer:
         X_news = news_embeddings[X_news_indices]
         elapsed = time.time() - start_time
         logger.debug(f"Tensores de notícias: {X_news.shape}. Elapsed: {elapsed:.2f} s")
-
         logger.debug("Pré-carregando tensor de relevância na GPU")
         y = torch.tensor(validacao['relevance'].values, dtype=torch.float32, device=device).unsqueeze(1)
         elapsed = time.time() - start_time
@@ -170,15 +157,10 @@ class Trainer:
         dataset = TensorDataset(X_user, X_news, y)
         elapsed = time.time() - start_time
         logger.debug(f"Dataset criado. Elapsed: {elapsed:.2f} s")
-
         logger.debug(f"Inicializando DataLoader com batch_size={batch_size}")
-        dataloader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=min(8, os.cpu_count() or 1),
-            pin_memory=True if device.type == "cuda" else False
-        )
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, 
+                               num_workers=min(8, os.cpu_count() or 1), 
+                               pin_memory=True if device.type == "cuda" else False)
         elapsed = time.time() - start_time
         logger.debug(f"DataLoader inicializado. Elapsed: {elapsed:.2f} s")
 
@@ -189,71 +171,24 @@ class Trainer:
         user_embedding_dim = X_user.shape[1]
         news_embedding_dim = X_news.shape[1]
         model = RecommendationModel(user_embedding_dim, news_embedding_dim).to(device)
-
-        # Mantemos a perda binária com logits:
-        criterion = nn.BCEWithLogitsLoss()  
+        criterion = nn.BCEWithLogitsLoss()  # Perda binária com logits, segura para autocast
         optimizer = optim.Adam(model.parameters(), lr=0.001)  # Otimizador Adam
 
         # Treina o modelo na GPU com precisão mista e barra de progresso
         logger.info("Iniciando treinamento na GPU")
         start_time = time.time()
         num_epochs = 50  # Número de épocas (ajustável)
-        scaler = torch.amp.GradScaler('cuda')  # GradScaler (PyTorch 2.6+)
+        scaler = torch.amp.GradScaler('cuda')  # Atualizado para nova API do PyTorch 2.6.0
 
         for epoch in tqdm(range(num_epochs), desc="Treinando épocas", unit="epoch"):
             model.train()
             total_loss = 0
-            for batch_idx, (batch_X_user, batch_X_news, batch_y) in enumerate(
-                tqdm(dataloader, desc=f"Época {epoch+1}/{num_epochs}", leave=False, unit="batch")
-            ):
-                # Usa precisão mista para acelerar o treinamento
+            for batch_idx, (batch_X_user, batch_X_news, batch_y) in enumerate(tqdm(dataloader, desc=f"Época {epoch+1}/{num_epochs}", leave=False, unit="batch")):
+                # Usa precisão mista para acelerar o treinamento, com nova API
                 with torch.amp.autocast('cuda'):
-                    outputs = model(batch_X_user, batch_X_news)  # Forward => logits
-                    loss = criterion(outputs, batch_y)           # BCEWithLogitsLoss faz o Sigmoid internamente
+                    outputs = model(batch_X_user, batch_X_news)  # Forward pass
+                    loss = criterion(outputs, batch_y)  # Calcula perda
 
                 # Backpropagation com escalonamento de gradientes
-                optimizer.zero_grad()
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-
-                total_loss += loss.item() * batch_X_user.size(0)
-
-            avg_loss = total_loss / len(X_user)
-            if (epoch + 1) % 10 == 0:  # Log a cada 10 épocas
-                logger.info(f"Época {epoch + 1}/{num_epochs}, Perda Média: {avg_loss:.4f}")
-
-        elapsed = time.time() - start_time
-        logger.info(f"Modelo treinado com sucesso em {elapsed:.2f} segundos")
-
-        # Move o modelo para CPU para salvamento
-        model = model.cpu()
-        return model
-
-    def handle_cold_start(self, noticias, keywords=None):
-        """
-        Gera recomendações cold-start baseadas em popularidade ou palavras-chave.
-
-        Args:
-            noticias (pd.DataFrame): Dados das notícias.
-            keywords (List[str], opcional): Palavras-chave fornecidas pelo usuário.
-
-        Returns:
-            list: Lista de IDs de notícias recomendadas.
-        """
-        logger.info("Gerando recomendações cold-start")
-        if keywords:
-            logger.info(f"Filtrando notícias com palavras-chave: {keywords}")
-            mask = (
-                noticias['title'].str.contains('|'.join(keywords), case=False, na=False) |
-                noticias['body'].str.contains('|'.join(keywords), case=False, na=False)
-            )
-            filtered_news = noticias[mask]
-            if len(filtered_news) > 0:
-                popular_news = filtered_news.sort_values('issued', ascending=False).head(10)['page'].tolist()
-                logger.info(f"Encontradas {len(popular_news)} notícias relevantes para palavras-chave")
-                return popular_news
-
-        logger.info("Nenhuma palavra-chave fornecida ou resultados encontrados; usando popularidade")
-        popular_news = noticias.sort_values('issued', ascending=False).head(10)['page'].tolist()
-        return popular_news
+                optimizer.zero_grad()  # Limpa gradientes
+                scaler.scale(loss).backward()  # B
