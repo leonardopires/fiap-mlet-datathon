@@ -18,5 +18,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Exponha a porta 8000
 EXPOSE 8000
 
-# Inicie o aplicativo com Uvicorn
+# Inicie o aplicativo com Uvicornnego
 CMD ["python", "-c", "from src.api.main import APIServer; server = APIServer(); import uvicorn; uvicorn.run(server.app, host='0.0.0.0', port=8000, log_config=None)"]

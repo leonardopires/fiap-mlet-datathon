@@ -2,12 +2,19 @@ import asyncio
 import logging
 import sys
 import uvicorn
-from fastapi import FastAPI, HTTPException, WebSocket, BackgroundTasks
+from fastapi import FastAPI, HTTPException, WebSocket, BackgroundTasks, WebSocketException
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import time
 from logging.handlers import RotatingFileHandler
 import os
+
+from starlette.websockets import WebSocketState
+
+from src.data_loader import DataLoader
+from src.predictor import Predictor
+from src.preprocessor import Preprocessor
+from src.trainer import Trainer
 from .state_manager import StateManager
 from .data_initializer import DataInitializer
 from .metrics_calculator import MetricsCalculator
@@ -47,19 +54,39 @@ class APIServer:
         )
 
         self.app.add_middleware(
-            CORSMiddleware,
+            CORSMiddleware,  # type: ignore[middleware-type]
             allow_origins=["http://localhost:3000"],
             allow_headers=["*"],
             allow_credentials=True,
             allow_methods=["*"],
         )
         self.state = StateManager()
-        self.data_initializer = DataInitializer()
-        self.model_manager = ModelManager()
+        self.data_initializer = DataInitializer(DataLoader(), Preprocessor())
+        self.model_manager = ModelManager(Trainer(), Predictor)
         self.metrics_calculator = MetricsCalculator(self.state)
         self.training_status = {"running": False, "progress": "idle", "error": None}  # Estado do treinamento
         self.metrics_status = {"running": False, "progress": "idle", "error": None}  # Estado das métricas
         self.setup_routes()
+
+    async def _handle_websocket(self, websocket: WebSocket, callback: callable, callback_name: str):
+        """Gerencia conexão WebSocket, executa a callback e trata erros de forma genérica."""
+        await websocket.accept()
+        logger.info(f"WebSocket de {callback_name} conectado")
+        try:
+            if websocket.client_state != WebSocketState.DISCONNECTED:
+                await callback(websocket)
+            else:
+                logger.info(f"WebSocket de {callback_name} desconectado")
+        except WebSocketException as e:
+            logger.info(f"WebSocket de {callback_name} desconectado normalmente: {e}")
+        except Exception as e:
+            logger.error(f"Erro no WebSocket de {callback_name}: {e}")
+        finally:
+            try:
+                if websocket.client_state != WebSocketState.DISCONNECTED:
+                    await websocket.close()
+            except Exception as e:
+                logger.debug(f"Ignorando erro ao fechar WebSocket de {callback_name}: {e}")
 
     def _read_and_filter_logs(self, limit: int = 2000) -> list[str]:
         try:
@@ -102,14 +129,12 @@ class APIServer:
                 if self.data_initializer.load_persisted_data(self.state):
                     logger.info("Dados persistentes carregados; pulando pré-processamento")
                 else:
-                    logger.error("Dados persistentes encontrados, mas falha ao carregar")
                     self.training_status["error"] = "Falha ao carregar dados persistentes"
-                    raise Exception("Data loading failed")
+                    raise Exception("Dados persistentes incompletos ou corrompidos. Force novo treinamento.")
 
             if not os.path.exists('data/validacao.csv'):
                 self.training_status["error"] = "data/validacao.csv não encontrado"
-                logger.error("data/validacao.csv não encontrado")
-                raise Exception("Validation file missing")
+                raise Exception("Arquivo de validação não encontrado em data/validacao.csv.")
 
             if not os.path.exists('data/validacao_kaggle.csv'):
                 self.training_status["progress"] = "converting kaggle data"
@@ -120,8 +145,7 @@ class APIServer:
                 os.chdir(current_dir)
                 if result != 0 or not os.path.exists('data/validacao_kaggle.csv'):
                     self.training_status["error"] = "Falha ao gerar validacao_kaggle.csv"
-                    logger.error("Falha ao gerar validacao_kaggle.csv")
-                    raise Exception("Kaggle conversion failed")
+                    raise Exception("Falha ao gerar data/validacao_kaggle.csv")
 
             self.training_status["progress"] = "training"
             self.model_manager.train_model(self.state, 'data/validacao_kaggle.csv', force_retrain)
@@ -193,12 +217,10 @@ class APIServer:
 
         @self.app.websocket("/ws/logs")
         async def websocket_logs(websocket: WebSocket):
-            await websocket.accept()
-            logger.info("WebSocket de logs conectado")
-            try:
+            async def logs_callback(ws):
                 initial_logs = self._read_and_filter_logs()
                 for line in initial_logs:
-                    await websocket.send_text(line)
+                    await ws.send_text(line)
                 last_pos = os.path.getsize(log_path)
                 while True:
                     with open(log_path, 'r', encoding='utf-8') as f:
@@ -211,13 +233,11 @@ class APIServer:
                                     x not in line for x in ["GET /logs HTTP/1.1", "POST /logs HTTP/1.1"])
                             ]
                             for line in filtered_new_lines:
-                                await websocket.send_text(line)
+                                await ws.send_text(line)
                         last_pos = f.tell()
                     await asyncio.sleep(1)
-            except Exception as e:
-                logger.error(f"Erro no WebSocket de logs: {e}")
-            finally:
-                await websocket.close()
+
+            await self._handle_websocket(websocket, logs_callback, "logs")
 
         @self.app.get("/metrics", response_model=dict)
         async def get_metrics(force_recalc: bool = False, background_tasks: BackgroundTasks = None):
@@ -233,20 +253,16 @@ class APIServer:
 
         @self.app.websocket("/ws/status")
         async def websocket_status(websocket: WebSocket):
-            await websocket.accept()
-            logger.info("WebSocket de status conectado")
-            try:
+            async def status_callback(ws):
                 while True:
                     status = {
                         "training": self.training_status,
                         "metrics": self.metrics_status
                     }
-                    await websocket.send_json(status)
-                    await asyncio.sleep(1)  # Envia atualizações a cada segundo
-            except Exception as e:
-                logger.error(f"Erro no WebSocket de status: {e}")
-            finally:
-                await websocket.close()
+                    await ws.send_json(status)
+                    await asyncio.sleep(1)
+
+            await self._handle_websocket(websocket, status_callback, "status")
 
 
 if __name__ == "__main__":

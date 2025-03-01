@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 # Ativa otimização para operações na GPU
 torch.backends.cudnn.benchmark = True
 
+# Se a pasta data/cache não existir, cria ela recursivamente
+os.makedirs('data/cache', exist_ok=True)
+
 
 class RecommendationModel(nn.Module):
     """
@@ -221,7 +224,7 @@ class Trainer:
                     scaler.update()  # Atualiza o scaler para próxima iteração
             except Exception as e:
                 logger.error(f"Erro na época {epoch + 1}: {str(e)}")
-                torch.save(model.state_dict(), 'emergency_checkpoint.pth')
+                torch.save(model.state_dict(), 'data/cache/emergency_checkpoint.pth')
                 raise
 
             total_loss += loss.item() * batch_X_user.size(0)
