@@ -1,13 +1,18 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import 'bootstrap/dist/css/bootstrap.min.css'; // Importa o CSS do Bootstrap
-import App from './App';
+import { CssBaseline, ThemeProvider } from '@mui/material';
+import App from './pages/App';
 import reportWebVitals from './reportWebVitals';
+import {darkTheme} from "./styles/theme";
+
 
 const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <ThemeProvider theme={darkTheme}>
+      <CssBaseline />
+      <App />
+    </ThemeProvider>
   </React.StrictMode>
 );
 

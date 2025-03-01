@@ -1,4 +1,4 @@
-# src/api/metrics_calculator.py
+# src/metrics_calculator.py
 import logging
 import torch
 import pandas as pd
@@ -8,7 +8,6 @@ import os
 from src.preprocessor.cache_manager import CacheManager
 
 logger = logging.getLogger(__name__)
-
 
 class MetricsCalculator:
     def __init__(self, state):
@@ -42,7 +41,7 @@ class MetricsCalculator:
 
         user_interactions = interacoes.groupby('userId')['history'].apply(lambda x: len(x.iloc[0].split(', ')))
         active_users = user_interactions[user_interactions > 5].index  # Usuários com >5 interações
-        user_ids = np.random.choice(active_users, size=min(5000, len(active_users)), replace=False)
+        user_ids = np.random.choice(active_users, size=min(1000, len(active_users)), replace=False)  # Reduzido para 1000
         logger.info(f"Selecionados {len(user_ids)} usuários ativos de {len(active_users)} com >5 interações")
         logger.info(f"Carregados {len(interacoes)} registros de interações e {len(noticias)} notícias")
 
@@ -55,11 +54,11 @@ class MetricsCalculator:
         ils_total = []
         recommended_items = set()
 
-        # Pré-carrega embeddings de notícias na GPU
-        news_embs = torch.tensor(np.array(noticias['embedding'].tolist()), dtype=torch.float32).to(self.device)
-        logger.debug(f"Embeddings de notícias ({news_embs.shape}) carregados na GPU")
+        # Configurar batching para embeddings de notícias
+        batch_size = 10000  # Processar 10.000 notícias por vez
+        total_notcias = len(noticias)
 
-        for idx, user_id in enumerate(user_ids):
+        for user_idx, user_id in enumerate(user_ids):
             user_start_time = time.time()
             if user_id not in self.state.USER_PROFILES:
                 logger.warning(f"Usuário {user_id} não encontrado nos perfis; pulando")
@@ -68,28 +67,45 @@ class MetricsCalculator:
             # Carrega embedding do usuário na GPU
             user_emb = torch.tensor(self.state.USER_PROFILES[user_id], dtype=torch.float32).to(self.device)
             logger.debug(f"Embedding do usuário {user_id}: shape={user_emb.shape}")
-            user_emb = user_emb.unsqueeze(0).expand(len(news_embs), -1)  # Expande explicitamente
-            logger.debug(f"Embedding expandido: shape={user_emb.shape}")
 
-            # Calcula scores na GPU
-            with torch.no_grad():
-                scores = self.state.REGRESSOR(user_emb, news_embs)
-                scores = scores.squeeze(-1) + torch.rand(scores.shape, device=self.device) * 0.1  # Adicionar ruído
-            logger.debug(f"Scores brutos com ruído: shape={scores.shape}")
-            if scores.numel() == 0:
-                logger.error(f"Scores vazio para usuário {user_id}")
-                continue
-            scores = scores.squeeze(-1)  # Remove dimensão extra [255603, 1] -> [255603]
-            logger.debug(f"Scores após squeeze: shape={scores.shape}, len={len(scores)}")
-            if len(scores) < k:
-                logger.warning(
-                    f"Usuário {user_id}: apenas {len(scores)} scores disponíveis, ajustando k para {len(scores)}")
-            effective_k = min(k, len(scores))  # Ajusta k dinamicamente
+            # Processar notícias em lotes
+            scores_all = []
+
+            for batch_start in range(0, total_notcias, batch_size):
+                batch_end = min(batch_start + batch_size, total_notcias)
+                batch_notcias = noticias.iloc[batch_start:batch_end]
+                logger.debug(f"Processando lote de notícias {batch_start} a {batch_end} de {total_notcias}")
+
+                # Carrega embeddings do lote atual na GPU
+                news_embs = torch.tensor(np.array(batch_notcias['embedding'].tolist()), dtype=torch.float32).to(self.device)
+                logger.debug(f"Embeddings de notícias do lote: shape={news_embs.shape}")
+
+                # Expande o embedding do usuário para o lote atual
+                user_emb_batch = user_emb.unsqueeze(0).expand(len(news_embs), -1)
+                logger.debug(f"Embedding do usuário expandido: shape={user_emb_batch.shape}")
+
+                # Calcula scores na GPU
+                with torch.no_grad():
+                    scores = self.state.REGRESSOR(user_emb_batch, news_embs)
+                    scores = scores.squeeze(-1) + torch.rand(scores.shape, device=self.device) * 0.1  # Adicionar ruído
+                logger.debug(f"Scores do lote: shape={scores.shape}")
+                scores_all.extend(scores.cpu().numpy())  # Move para CPU e converte para lista
+
+                # Libera memória da GPU
+                del news_embs, user_emb_batch, scores
+                torch.cuda.empty_cache()
+
+            # Converte scores_all para tensor e obtém os top-k índices
+            scores_all = torch.tensor(scores_all, dtype=torch.float32)
+            logger.debug(f"Scores totais: shape={scores_all.shape}")
+
+            # Obtém os top-k índices
+            effective_k = min(k, len(scores_all))
             if effective_k == 0:
                 logger.error(f"Não há scores válidos para usuário {user_id}; pulando")
                 continue
-            top_indices = torch.topk(scores, effective_k).indices  # Top-K na GPU
-            top_pages = noticias['page'].iloc[top_indices.cpu().numpy()].tolist()
+            top_indices = torch.topk(scores_all, effective_k).indices
+            top_pages = noticias['page'].iloc[top_indices.numpy()].tolist()
             recommended_items.update(top_pages)
 
             # Ground truth (histórico do usuário)
@@ -114,13 +130,18 @@ class MetricsCalculator:
                 mrr_total.append(0)
 
             # ILS (similaridade intra-lista) na GPU
-            top_embeddings = news_embs[top_indices]
-            if len(top_embeddings) > 1:
-                # Normaliza embeddings
-                top_embeddings_norm = top_embeddings / torch.norm(top_embeddings, dim=1, keepdim=True)
-                sim_matrix = top_embeddings_norm @ top_embeddings_norm.T  # Similaridade de cosseno
-                ils = torch.triu(sim_matrix, diagonal=1).mean().item()  # Média do triângulo superior
-                ils_total.append(ils)
+            if len(top_pages) > 1:
+                top_indices_tensor = torch.tensor([noticias[noticias['page'] == page].index[0] for page in top_pages], dtype=torch.long)
+                top_embeddings = torch.tensor(np.array(noticias['embedding'].iloc[top_indices_tensor].tolist()), dtype=torch.float32).to(self.device)
+                if len(top_embeddings) > 1:
+                    top_embeddings_norm = top_embeddings / torch.norm(top_embeddings, dim=1, keepdim=True)
+                    sim_matrix = top_embeddings_norm @ top_embeddings_norm.T
+                    ils = torch.triu(sim_matrix, diagonal=1).mean().item()
+                    ils_total.append(ils)
+
+                # Libera memória
+                del top_embeddings, top_embeddings_norm, sim_matrix
+                torch.cuda.empty_cache()
 
             elapsed_user = time.time() - user_start_time
             logger.debug(f"Usuário {user_id} processado em {elapsed_user:.2f} segundos: "
@@ -132,9 +153,9 @@ class MetricsCalculator:
 
         # Calcula médias
         metrics = {
-            "precision_at_k": np.mean(precision_at_k_total),
-            "recall_at_k": np.mean(recall_at_k_total),
-            "mrr": np.mean(mrr_total),
+            "precision_at_k": np.mean(precision_at_k_total) if precision_at_k_total else 0.0,
+            "recall_at_k": np.mean(recall_at_k_total) if recall_at_k_total else 0.0,
+            "mrr": np.mean(mrr_total) if mrr_total else 0.0,
             "intra_list_similarity": np.mean(ils_total) if ils_total else 0,
             "catalog_coverage": catalog_coverage
         }

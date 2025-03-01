@@ -26,7 +26,7 @@ log_path = os.path.join('logs', 'app.log')
 os.makedirs('logs', exist_ok=True)
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='recomendador-g1 | %(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         RotatingFileHandler(log_path, maxBytes=50 * 1024 * 1024, backupCount=5),
@@ -38,7 +38,6 @@ root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
 
 uvicorn_logger = logging.getLogger('uvicorn')
-uvicorn_logger.handlers = root_logger.handlers
 uvicorn_logger.setLevel(logging.INFO)
 uvicorn_logger.propagate = False
 
@@ -54,7 +53,7 @@ class APIServer:
         )
 
         self.app.add_middleware(
-            CORSMiddleware,  # type: ignore[middleware-type]
+            CORSMiddleware,
             allow_origins=["http://localhost:3000"],
             allow_headers=["*"],
             allow_credentials=True,
@@ -64,8 +63,9 @@ class APIServer:
         self.data_initializer = DataInitializer(DataLoader(), Preprocessor())
         self.model_manager = ModelManager(Trainer(), Predictor)
         self.metrics_calculator = MetricsCalculator(self.state)
-        self.training_status = {"running": False, "progress": "idle", "error": None}  # Estado do treinamento
-        self.metrics_status = {"running": False, "progress": "idle", "error": None}  # Estado das métricas
+        self.training_status = {"running": False, "progress": "idle", "error": None}
+        self.metrics_status = {"running": False, "progress": "idle", "error": None}
+        self.prediction_status = {"running": False, "progress": "idle", "error": None}  # Novo estado para predição
         self.setup_routes()
 
     async def _handle_websocket(self, websocket: WebSocket, callback: callable, callback_name: str):
@@ -77,10 +77,10 @@ class APIServer:
                 await callback(websocket)
             else:
                 logger.info(f"WebSocket de {callback_name} desconectado")
-        except WebSocketException as e:
-            logger.info(f"WebSocket de {callback_name} desconectado normalmente: {e}")
-        except Exception as e:
-            logger.error(f"Erro no WebSocket de {callback_name}: {e}")
+        except RuntimeError as re:
+            logger.info(f"WebSocket de {callback_name} desconectado normalmente: {re}")
+        except Exception as ex:
+            logger.error(f"Erro no WebSocket de {callback_name}: {ex}")
         finally:
             try:
                 if websocket.client_state != WebSocketState.DISCONNECTED:
@@ -181,6 +181,26 @@ class APIServer:
         finally:
             self.metrics_status["running"] = False
 
+    def _predict_background(self, request: UserRequest):
+        self.prediction_status["running"] = True
+        self.prediction_status["progress"] = "starting"
+        self.prediction_status["error"] = None
+        try:
+            start_time = time.time()
+            logger.info(f"Requisição de predição para {request.user_id} em background")
+            self.prediction_status["progress"] = "predicting"
+            predictions = self.model_manager.predict(self.state, request.user_id, request.keywords)
+            elapsed = time.time() - start_time
+            logger.info(f"Predição concluída em {elapsed:.2f} segundos")
+            self.prediction_status["progress"] = "completed"
+            return predictions
+        except Exception as e:
+            self.prediction_status["error"] = str(e)
+            logger.error(f"Erro durante predição: {e}")
+            raise
+        finally:
+            self.prediction_status["running"] = False
+
     def setup_routes(self):
         @self.app.get("/")
         async def read_root():
@@ -201,14 +221,31 @@ class APIServer:
         async def get_train_status():
             return self.training_status
 
-        @self.app.post("/predict", response_model=PredictionResponse)
-        async def get_prediction(request: UserRequest):
+        @self.app.post("/predict")
+        async def get_prediction(request: UserRequest, background_tasks: BackgroundTasks = None):
+            if self.prediction_status["running"]:
+                raise HTTPException(status_code=429,
+                                    detail="Uma solicitação de predição já está em andamento. Acompanhe via /predict/status.")
+
+            background_tasks.add_task(self._predict_background, request)
+            return {"message": "Predição iniciada; acompanhe via /predict/status"}
+
+        @self.app.post("/predict_foreground", response_model=PredictionResponse)
+        async def get_prediction_foreground(request: UserRequest):
+            if self.prediction_status["running"]:
+                raise HTTPException(status_code=429,
+                                    detail="Uma solicitação de predição já está em andamento. Acompanhe via /predict/status.")
+
             start_time = time.time()
             logger.info(f"Requisição de predição para {request.user_id}")
             predictions = self.model_manager.predict(self.state, request.user_id, request.keywords)
             elapsed = time.time() - start_time
             logger.info(f"Predição concluída em {elapsed:.2f} segundos")
             return {"user_id": request.user_id, "acessos_futuros": predictions}
+
+        @self.app.get("/predict/status")
+        async def get_predict_status():
+            return self.prediction_status
 
         @self.app.get("/logs")
         async def get_logs():
@@ -263,6 +300,16 @@ class APIServer:
                     await asyncio.sleep(1)
 
             await self._handle_websocket(websocket, status_callback, "status")
+
+        @self.app.websocket("/ws/predict/status")
+        async def websocket_predict_status(websocket: WebSocket):
+            async def predict_status_callback(ws):
+                while True:
+                    status = self.prediction_status
+                    await ws.send_json(status)
+                    await asyncio.sleep(1)
+
+            await self._handle_websocket(websocket, predict_status_callback, "predict/status")
 
 
 if __name__ == "__main__":
