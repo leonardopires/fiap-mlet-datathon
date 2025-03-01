@@ -35,8 +35,7 @@ class RecommendationModel(nn.Module):
         self.user_layer = nn.Linear(user_embedding_dim, hidden_dim)  # Reduz embeddings de usuário
         self.relu = nn.ReLU()  # Função de ativação
         self.output_layer = nn.Linear(hidden_dim * 2, 1)  # Camada de saída para predição
-
-        # self.sigmoid = nn.Sigmoid()  # Converte saída em probabilidade (0-1) [COMENTADO: usar BCEWithLogitsLoss]
+        # self.sigmoid = nn.Sigmoid()  # Converte saída em probabilidade (0-1) [REMOVIDO para usar BCEWithLogitsLoss]
 
     def forward(self, user_emb, news_emb):
         """
@@ -47,13 +46,14 @@ class RecommendationModel(nn.Module):
             news_emb (torch.Tensor): Embedding da notícia.
 
         Returns:
-            torch.Tensor: Logits (valores brutos) a serem usados com BCEWithLogitsLoss.
+            torch.Tensor: Logits (valores brutos) que serão transformados em probabilidade no BCEWithLogitsLoss.
         """
         user_out = self.user_layer(user_emb)
         news_out = self.news_layer(news_emb)
         combined = torch.cat((user_out, news_out), dim=1)  # Concatena os embeddings processados
         output = self.output_layer(self.relu(combined))
         return output  # Retorna logits, sem Sigmoid!
+
 
 class Trainer:
     def train(self, interacoes, noticias, user_profiles, validation_file):
@@ -191,4 +191,48 @@ class Trainer:
 
                 # Backpropagation com escalonamento de gradientes
                 optimizer.zero_grad()  # Limpa gradientes
-                scaler.scale(loss).backward()  # B
+                scaler.scale(loss).backward()  # Backpropagation com precisão mista
+                scaler.step(optimizer)  # Atualiza pesos
+                scaler.update()  # Atualiza o scaler para próxima iteração
+
+                total_loss += loss.item() * batch_X_user.size(0)
+
+            avg_loss = total_loss / len(X_user)
+            if (epoch + 1) % 10 == 0:  # Log a cada 10 épocas
+                logger.info(f"Época {epoch + 1}/{num_epochs}, Perda Média: {avg_loss:.4f}")
+
+        elapsed = time.time() - start_time
+        logger.info(f"Modelo treinado com sucesso em {elapsed:.2f} segundos")
+
+        # Move o modelo para CPU para salvamento
+        model = model.cpu()
+        return model
+
+    def handle_cold_start(self, noticias, keywords=None):
+        """
+        Gera recomendações cold-start baseadas em popularidade ou palavras-chave.
+
+        Args:
+            noticias (pd.DataFrame): Dados das notícias.
+            keywords (List[str], opcional): Palavras-chave fornecidas pelo usuário.
+
+        Returns:
+            list: Lista de IDs de notícias recomendadas.
+        """
+        logger.info("Gerando recomendações cold-start")
+        if keywords:
+            logger.info(f"Filtrando notícias com palavras-chave: {keywords}")
+            # Filtra notícias que contêm pelo menos uma palavra-chave no título ou corpo
+            mask = noticias['title'].str.contains('|'.join(keywords), case=False, na=False) | \
+                   noticias['body'].str.contains('|'.join(keywords), case=False, na=False)
+            filtered_news = noticias[mask]
+            if len(filtered_news) > 0:
+                # Ordena por recência entre as filtradas
+                popular_news = filtered_news.sort_values('issued', ascending=False).head(10)['page'].tolist()
+                logger.info(f"Encontradas {len(popular_news)} notícias relevantes para palavras-chave")
+                return popular_news
+
+        # Fallback: notícias populares se não houver palavras-chave ou resultados
+        logger.info("Nenhuma palavra-chave fornecida ou resultados encontrados; usando popularidade")
+        popular_news = noticias.sort_values('issued', ascending=False).head(10)['page'].tolist()
+        return popular_news
