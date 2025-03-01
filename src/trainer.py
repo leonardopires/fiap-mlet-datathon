@@ -8,6 +8,10 @@ import torch.optim as optim
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
 import time
+import os  # Mantemos para cálculo dinâmico de batch_size, etc.
+
+# Ativa otimização para operações na GPU
+torch.backends.cudnn.benchmark = True
 
 # Configura o logger para exibir mensagens detalhadas
 logger = logging.getLogger(__name__)
@@ -32,8 +36,9 @@ class RecommendationModel(nn.Module):
         self.user_layer = nn.Linear(user_embedding_dim, hidden_dim)  # Reduz embeddings de usuário
         self.relu = nn.ReLU()  # Função de ativação
         self.output_layer = nn.Linear(hidden_dim * 2, 1)  # Camada de saída para predição
+
         # Removemos a Sigmoid daqui, pois usaremos BCEWithLogitsLoss
-        # self.sigmoid = nn.Sigmoid()  
+        # self.sigmoid = nn.Sigmoid()
 
     def forward(self, user_emb, news_emb):
         """
@@ -74,6 +79,18 @@ class Trainer:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"Usando dispositivo: {device}")
 
+        # Ajuste dinâmico do batch_size com base na memória da GPU
+        if device.type == "cuda":
+            total_memory, _ = torch.cuda.mem_get_info()
+            max_batch_size = max(32, min(4096, int(total_memory / (1024 * 1024 * 200))))  # Ajuste conservador
+            logger.info(
+                f"Memória da GPU disponível: {total_memory / (1024 * 1024 * 1024):.2f} GB. "
+                f"Batch size ajustado: {max_batch_size}"
+            )
+        else:
+            max_batch_size = 512  # Valor padrão para CPU
+        batch_size = max_batch_size
+
         # Carrega os dados de validação
         logger.info(f"Carregando dados de validação de {validation_file}")
         validacao = pd.read_csv(validation_file)
@@ -88,11 +105,12 @@ class Trainer:
         news_column = 'history'
         if news_column not in validacao.columns:
             logger.error(
-                f"Coluna '{news_column}' não encontrada em validacao. Colunas disponíveis: {validacao.columns}")
+                f"Coluna '{news_column}' não encontrada em validacao. "
+                f"Colunas disponíveis: {validacao.columns}"
+            )
             raise KeyError(f"Coluna '{news_column}' não encontrada em {validation_file}")
 
         # Codifica os IDs das notícias para índices numéricos
-        from sklearn.preprocessing import LabelEncoder
         news_encoder = LabelEncoder()
         news_encoder.fit(noticias['page'])
         validacao['news_idx'] = news_encoder.transform(validacao[news_column])
@@ -118,16 +136,19 @@ class Trainer:
         logger.debug(f"Embeddings de usuários carregados: {user_embeddings.shape}. Elapsed: {elapsed:.2f} s")
 
         logger.debug("Preparando índices de usuários e notícias com barra de progresso")
-        from tqdm import tqdm  # Para barras de progresso
-        X_user_indices = torch.tensor([user_id_to_idx[row['userId']] for _, row in
-                                       tqdm(validacao.iterrows(), total=len(validacao), desc="Preparando X_user")],
-                                      dtype=torch.long).to(device)
+        X_user_indices = torch.tensor(
+            [user_id_to_idx[row['userId']] for _, row in
+             tqdm(validacao.iterrows(), total=len(validacao), desc="Preparando X_user")],
+            dtype=torch.long
+        ).to(device)
         elapsed = time.time() - start_time
         logger.debug(f"Índices de usuários preparados: {X_user_indices.shape}. Elapsed: {elapsed:.2f} s")
 
-        X_news_indices = torch.tensor([news_page_to_idx[row[news_column]] for _, row in
-                                       tqdm(validacao.iterrows(), total=len(validacao), desc="Preparando X_news")],
-                                      dtype=torch.long).to(device)
+        X_news_indices = torch.tensor(
+            [news_page_to_idx[row[news_column]] for _, row in
+             tqdm(validacao.iterrows(), total=len(validacao), desc="Preparando X_news")],
+            dtype=torch.long
+        ).to(device)
         elapsed = time.time() - start_time
         logger.debug(f"Índices de notícias preparados: {X_news_indices.shape}. Elapsed: {elapsed:.2f} s")
 
@@ -149,9 +170,15 @@ class Trainer:
         dataset = TensorDataset(X_user, X_news, y)
         elapsed = time.time() - start_time
         logger.debug(f"Dataset criado. Elapsed: {elapsed:.2f} s")
-        batch_size = 2048  # Tamanho do batch (ajustável)
+
         logger.debug(f"Inicializando DataLoader com batch_size={batch_size}")
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=min(8, os.cpu_count() or 1),
+            pin_memory=True if device.type == "cuda" else False
+        )
         elapsed = time.time() - start_time
         logger.debug(f"DataLoader inicializado. Elapsed: {elapsed:.2f} s")
 
@@ -181,8 +208,8 @@ class Trainer:
             ):
                 # Usa precisão mista para acelerar o treinamento
                 with torch.amp.autocast('cuda'):
-                    outputs = model(batch_X_user, batch_X_news)  # Forward pass => retorna logits
-                    loss = criterion(outputs, batch_y)           # BCEWithLogitsLoss trata da Sigmoid internamente
+                    outputs = model(batch_X_user, batch_X_news)  # Forward => logits
+                    loss = criterion(outputs, batch_y)           # BCEWithLogitsLoss faz o Sigmoid internamente
 
                 # Backpropagation com escalonamento de gradientes
                 optimizer.zero_grad()
@@ -206,6 +233,13 @@ class Trainer:
     def handle_cold_start(self, noticias, keywords=None):
         """
         Gera recomendações cold-start baseadas em popularidade ou palavras-chave.
+
+        Args:
+            noticias (pd.DataFrame): Dados das notícias.
+            keywords (List[str], opcional): Palavras-chave fornecidas pelo usuário.
+
+        Returns:
+            list: Lista de IDs de notícias recomendadas.
         """
         logger.info("Gerando recomendações cold-start")
         if keywords:
