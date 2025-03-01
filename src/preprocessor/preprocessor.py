@@ -1,6 +1,5 @@
 import logging
 
-import numpy as np
 import torch
 import pandas as pd
 from typing import Tuple, Dict
@@ -61,13 +60,13 @@ class Preprocessor:
             if len(embeddings) != len(noticias):
                 logger.warning(
                     f"Tamanho do cache de embeddings ({len(embeddings)}) não corresponde ao número de notícias ({len(noticias)}); regenerando embeddings")
-                embeddings = self.embedding_generator.generate_embeddings(noticias['title'].tolist())
+                embeddings = self.embedding_generator.generate_embeddings(noticias['title'].tolist(), noticias)
                 self.cache_manager.save_embeddings(embedding_cache, embeddings)
             else:
                 logger.info("Cache de embeddings válido; usando embeddings existentes")
         else:
             logger.info("Nenhum cache de embeddings encontrado; gerando novos embeddings")
-            embeddings = self.embedding_generator.generate_embeddings(noticias['title'].tolist())
+            embeddings = self.embedding_generator.generate_embeddings(noticias['title'].tolist(), noticias)
             self.cache_manager.save_embeddings(embedding_cache, embeddings)
 
         # Converte embeddings para um array NumPy 2D fixo e datas para datetime64

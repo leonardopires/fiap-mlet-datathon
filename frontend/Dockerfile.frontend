@@ -2,16 +2,11 @@ FROM node:18
 
 WORKDIR /app
 
-# Copie o package.json e package-lock.json (se existir) para instalar dependências
+# Copie apenas package.json e package-lock.json para instalar dependências
 COPY package.json package-lock.json* ./
 
-# Instale todas as dependências listadas no package.json, incluindo Material-UI e tipos
-RUN npm install @mui/icons-material @mui/material @emotion/react @emotion/styled
-RUN npm install --save-dev @types/react @types/react-dom @mui/types
-RUN npm install --legacy-peer-deps
-
-# Copie o restante dos arquivos do frontend
-COPY . .
+# Instale as dependências usando npm ci
+RUN npm ci --legacy-peer-deps
 
 # Exponha a porta 3000
 EXPOSE 3000

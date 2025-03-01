@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 # Ativa otimização para operações na GPU
 torch.backends.cudnn.benchmark = True
 
+
 class RecommendationModel(nn.Module):
     """
     Modelo de recomendação neural que combina embeddings de usuários e notícias.
@@ -75,21 +76,19 @@ class Trainer:
         # Define o dispositivo (GPU se disponível, senão CPU)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"Usando dispositivo: {device}")
-
-        # Ajuste dinâmico do batch_size com base na memória da GPU
         if device.type == "cuda":
-            total_memory, _ = torch.cuda.mem_get_info()
-            max_batch_size = max(32, min(4096, int(total_memory / (1024 * 1024 * 200))))  # Ajuste conservador
-            logger.info(f"Memória da GPU disponível: {total_memory / (1024 * 1024 * 1024):.2f} GB. Batch size ajustado: {max_batch_size}")
-        else:
-            max_batch_size = 512  # Valor padrão para CPU
-        batch_size = max_batch_size
+            torch.cuda.init()  # Forçar inicialização explícita
+            logger.info("CUDA inicializado explicitamente")
 
         # Carrega os dados de validação
         logger.info(f"Carregando dados de validação de {validation_file}")
         validacao = pd.read_csv(validation_file)
         elapsed = time.time() - start_time
         logger.info(f"Dados de validação carregados: {len(validacao)} registros em {elapsed:.2f} segundos")
+        train_size = int(0.8 * len(validacao))
+        train_df = validacao[:train_size]
+        val_df = validacao[train_size:]
+        logger.info(f"Dados divididos: {len(train_df)} para treino, {len(val_df)} para validação")
 
         # Prepara os dados para treinamento
         logger.info(f"Preparando dados para treinamento com {len(validacao)} registros")
@@ -142,9 +141,14 @@ class Trainer:
 
         # Usa índices para selecionar embeddings diretamente na GPU e cria dataset
         X_user = user_embeddings[X_user_indices]
+        X_user = X_user / torch.norm(X_user, dim=1, keepdim=True)  # Normalizar embeddings
+
         elapsed = time.time() - start_time
         logger.debug(f"Tensores de usuários: {X_user.shape}. Elapsed: {elapsed:.2f} s")
+
         X_news = news_embeddings[X_news_indices]
+        X_news = X_news / torch.norm(X_news, dim=1, keepdim=True)  # Normalizar
+
         elapsed = time.time() - start_time
         logger.debug(f"Tensores de notícias: {X_news.shape}. Elapsed: {elapsed:.2f} s")
         logger.debug("Pré-carregando tensor de relevância na GPU")
@@ -157,10 +161,29 @@ class Trainer:
         dataset = TensorDataset(X_user, X_news, y)
         elapsed = time.time() - start_time
         logger.debug(f"Dataset criado. Elapsed: {elapsed:.2f} s")
+
+        # Calcular batch_size com base na VRAM disponível após carregar tensores
+        if device.type == "cuda":
+            total_memory, used_memory = torch.cuda.mem_get_info()
+            free_memory_mb = (total_memory - used_memory) / (1024 * 1024)  # Memória livre em MB
+            target_memory_mb = free_memory_mb * 0.8  # Usar 80% da VRAM livre
+            # Estimar memória por item (baseado em X_user e X_news)
+            item_size_mb = (
+                                   X_user.element_size() * X_user.nelement() + X_news.element_size() * X_news.nelement() + y.element_size() * y.nelement()) / (
+                                   1024 * 1024 * len(dataset))
+            overhead_mb = 1024  # Reserva 1GB para overhead
+            max_batch_size = max(32, min(4096, int((target_memory_mb - overhead_mb) / item_size_mb)))
+            logger.info(
+                f"VRAM total: {total_memory / (1024 * 1024 * 1024):.2f} GB, livre: {free_memory_mb / 1024:.2f} GB, item size: {item_size_mb:.2f} MB, batch_size: {max_batch_size}")
+        else:
+            max_batch_size = 512
+        batch_size = max_batch_size
+
         logger.debug(f"Inicializando DataLoader com batch_size={batch_size}")
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, 
-                               num_workers=min(8, os.cpu_count() or 1), 
-                               pin_memory=True if device.type == "cuda" else False)
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
+                                num_workers=0 if device.type == "cuda" else min(8, os.cpu_count() or 1),
+                                pin_memory=False)
+
         elapsed = time.time() - start_time
         logger.debug(f"DataLoader inicializado. Elapsed: {elapsed:.2f} s")
 
@@ -181,24 +204,46 @@ class Trainer:
         scaler = torch.amp.GradScaler('cuda')  # Atualizado para nova API do PyTorch 2.6.0
 
         for epoch in tqdm(range(num_epochs), desc="Treinando épocas", unit="epoch"):
-            model.train()
-            total_loss = 0
-            for batch_idx, (batch_X_user, batch_X_news, batch_y) in enumerate(tqdm(dataloader, desc=f"Época {epoch+1}/{num_epochs}", leave=False, unit="batch")):
-                # Usa precisão mista para acelerar o treinamento, com nova API
-                with torch.amp.autocast('cuda'):
-                    outputs = model(batch_X_user, batch_X_news)  # Forward pass
-                    loss = criterion(outputs, batch_y)  # Calcula perda
+            try:
+                model.train()
+                total_loss = 0
+                for batch_idx, (batch_X_user, batch_X_news, batch_y) in enumerate(
+                        tqdm(dataloader, desc=f"Época {epoch + 1}/{num_epochs}", leave=False, unit="batch")):
+                    # Usa precisão mista para acelerar o treinamento, com nova API
+                    with torch.amp.autocast('cuda'):
+                        outputs = model(batch_X_user, batch_X_news)  # Forward pass
+                        loss = criterion(outputs, batch_y)  # Calcula perda
 
-                # Backpropagation com escalonamento de gradientes
-                optimizer.zero_grad()  # Limpa gradientes
-                scaler.scale(loss).backward()  # Backpropagation com precisão mista
-                scaler.step(optimizer)  # Atualiza pesos
-                scaler.update()  # Atualiza o scaler para próxima iteração
+                    # Backpropagation com escalonamento de gradientes
+                    optimizer.zero_grad()  # Limpa gradientes
+                    scaler.scale(loss).backward()  # Backpropagation com precisão mista
+                    scaler.step(optimizer)  # Atualiza pesos
+                    scaler.update()  # Atualiza o scaler para próxima iteração
+            except Exception as e:
+                logger.error(f"Erro na época {epoch + 1}: {str(e)}")
+                torch.save(model.state_dict(), 'emergency_checkpoint.pth')
+                raise
 
-                total_loss += loss.item() * batch_X_user.size(0)
+            total_loss += loss.item() * batch_X_user.size(0)
 
             avg_loss = total_loss / len(X_user)
-            logger.info(f"Epoch {epoch + 1}/{num_epochs}, Perda: {avg_loss:.4f}")
+            logger.info(f"Epoch {epoch + 1}/{num_epochs}, Perda Treino: {avg_loss:.4f}")
+            if (epoch + 1) % 10 == 0:
+                model.eval()
+                val_X_user_indices = torch.tensor([user_id_to_idx[row['userId']] for _, row in val_df.iterrows()],
+                                                  dtype=torch.long).to(device)
+                val_X_news_indices = torch.tensor([news_page_to_idx[row[news_column]] for _, row in val_df.iterrows()],
+                                                  dtype=torch.long).to(device)
+                val_X_user = user_embeddings[val_X_user_indices]
+                val_X_news = news_embeddings[val_X_news_indices]
+                val_y = torch.tensor(val_df['relevance'].values, dtype=torch.float32, device=device).unsqueeze(1)
+                with torch.no_grad():
+                    val_outputs = model(val_X_user, val_X_news)
+                    val_loss = criterion(val_outputs, val_y)
+                logger.info(
+                    f"Época {epoch + 1}/{num_epochs}, Perda Treino: {avg_loss:.4f}, Perda Validação: {val_loss.item():.4f}")
+
+            model.train()
 
             if (epoch + 1) % 10 == 0:  # Log a cada 10 épocas
                 logger.info(f"Época {epoch + 1}/{num_epochs}, Perda Média: {avg_loss:.4f}")
@@ -238,4 +283,3 @@ class Trainer:
         logger.info("Nenhuma palavra-chave fornecida ou resultados encontrados; usando popularidade")
         popular_news = noticias.sort_values('issued', ascending=False).head(10)['page'].tolist()
         return popular_news
-

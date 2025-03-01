@@ -22,6 +22,7 @@ class Predictor:
         with torch.no_grad():
             self.model.eval()
             scores = self.model(user_emb.expand_as(news_embs), news_embs).squeeze()
+            scores = scores + torch.rand(scores.shape, device=self.device) * 0.1  # Ruído
 
         top_indices = torch.topk(scores, 10).indices.cpu().numpy()
         top_news = self.noticias.iloc[top_indices]
