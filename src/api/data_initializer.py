@@ -54,10 +54,12 @@ class DataInitializer:
             # Carrega as interações dos usuários
             logger.info(f"Carregando INTERACOES de {interacoes_file}")
             state.INTERACOES = pd.read_hdf(interacoes_file, key='interacoes')
+            logger.info(f"Interações encontradas em INTERACOES: {len(state.INTERACOES)}")
 
             # Carrega as notícias
             logger.info(f"Carregando NOTICIAS de {noticias_file}")
             state.NOTICIAS = pd.read_hdf(noticias_file, key='noticias')
+            logger.info(f"Notícias encontradas em NOTICIAS: {len(state.NOTICIAS)}")
 
             # Carrega os perfis dos usuários
             logger.info(f"Carregando USER_PROFILES de {user_profiles_file}")
@@ -65,6 +67,8 @@ class DataInitializer:
                 embeddings = f['embeddings'][:]  # Números que representam os perfis
                 user_ids = f['user_ids'][:].astype(str)  # IDs dos usuários
                 state.USER_PROFILES = dict(zip(user_ids, embeddings))  # Junta IDs e perfis
+
+            logger.info(f"Usuários encontrados em USER_PROFILES: {len(state.USER_PROFILES)}")
 
             # Carrega o modelo treinado
             logger.info(f"Carregando REGRESSOR de {regressor_file}")

@@ -8,9 +8,7 @@
     "@mui/icons-material": "^5.15.14",
     "@mui/material": "^5.15.14",
     "axios": "^1.7.9",
-    "bootstrap": "^5.3.3",
     "react": "^18.2.0",
-    "react-bootstrap": "^2.10.9",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
     "web-vitals": "^2.1.4"
@@ -26,7 +24,7 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build",
+    "build": "react-scripts build --source-map",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },

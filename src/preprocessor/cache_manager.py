@@ -82,6 +82,24 @@ class CacheManager:
         elapsed = time.time() - start_time
         logger.info(f"Perfis salvos em {cache_file} em {elapsed:.2f} segundos")
 
+    def save_metrics(self, cache_file: str, metrics: Dict[str, float]) -> None:
+        """Salva as métricas em um arquivo HDF5."""
+        start_time = time.time()
+        with h5py.File(cache_file, 'w') as f:
+            for key, value in metrics.items():
+                f.create_dataset(key, data=value)
+        elapsed = time.time() - start_time
+        logger.info(f"Métricas salvas em {cache_file} em {elapsed:.2f} segundos")
+
+    def load_metrics(self, cache_file: str) -> Dict[str, float]:
+        """Carrega as métricas de um arquivo HDF5."""
+        start_time = time.time()
+        with h5py.File(cache_file, 'r') as f:
+            metrics = {key: float(f[key][()]) for key in f.keys()}
+        elapsed = time.time() - start_time
+        logger.info(f"Métricas carregadas de {cache_file} em {elapsed:.2f} segundos")
+        return metrics
+
     def save_dataframe(self, cache_file: str, df: pd.DataFrame, key: str) -> None:
         """
         Salva uma tabela (DataFrame) em um arquivo.
