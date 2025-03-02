@@ -37,7 +37,7 @@ const Recommendations: React.FC = () => {
   const statusWsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8000/ws/predict/status');
+    const ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/predict/status`);
     statusWsRef.current = ws;
     ws.onopen = () => console.log('WebSocket de status de predição conectado');
     ws.onmessage = (event) => {
@@ -53,7 +53,7 @@ const Recommendations: React.FC = () => {
     ws.onerror = (error) => console.error('Erro no WebSocket de status de predição:', error);
     ws.onclose = () => {
       console.log('WebSocket de status de predição desconectado. Tentando reconectar...');
-      setTimeout(() => (statusWsRef.current = new WebSocket('ws://localhost:8000/ws/predict/status')), 1000);
+      setTimeout(() => (statusWsRef.current = new WebSocket(`ws://${window.location.hostname}:8000/ws/predict/status`)), 1000);
     };
     return () => ws.close();
   }, [showSnackbar]);
@@ -67,8 +67,15 @@ const Recommendations: React.FC = () => {
       if (keywords) {
         payload.keywords = keywords.split(',').map(kw => kw.trim());
       }
-      const response = await axios.post('http://localhost:8000/predict_foreground', payload);
-      const acessosFuturos = response.data.acessos_futuros || [];
+      const response = await axios.post(`http://${window.location.hostname}:8000/predict_foreground`, payload);
+      const urlSet = new Set();
+      let acessosFuturos = (response.data.acessos_futuros || []).filter((rec: Recommendation) => {
+        const exists = urlSet.has(rec.link);
+        urlSet.add(rec.link);
+        return !exists;
+      });
+      // limita o tamanho do array a 10
+      acessosFuturos = acessosFuturos.slice(0, Math.min(10, acessosFuturos.length));
       setRecommendations(acessosFuturos);
       console.log('Resposta da API:', response.data);
       setPredictionStatus({running: false, progress: 'completed', error: null});
@@ -93,7 +100,7 @@ const Recommendations: React.FC = () => {
         scroll_percentage: 50,
         timestamp: Date.now(),
       };
-      await axios.post('http://localhost:8000/log_interaction', interaction);
+      await axios.post(`http://${window.location.hostname}:8000/log_interaction`, interaction);
       showSnackbar('Interação registrada com sucesso!', 'success'); // Notificação de sucesso
     } catch (error) {
       console.error('Erro ao registrar interação:', error);

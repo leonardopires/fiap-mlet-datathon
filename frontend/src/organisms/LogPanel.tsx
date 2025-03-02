@@ -17,11 +17,11 @@ const LogPanel: React.FC<LogPanelProps> = ({visible, setVisible}) => {
   const [isAtBottom, setIsAtBottom] = useState(true);
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8000/ws/logs');
+    const ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/logs`);
     wsRef.current = ws;
     ws.onopen = () => console.log('WebSocket de logs conectado');
     ws.onmessage = (event) => setLogs((prev) => [...prev, event.data].slice(-2000));
-    ws.onclose = () => setTimeout(() => (wsRef.current = new WebSocket('ws://localhost:8000/ws/logs')), 1000);
+    ws.onclose = () => setTimeout(() => (wsRef.current = new WebSocket(`ws://${window.location.hostname}:8000/ws/logs`)), 1000);
     return () => ws.close();
   }, []);
 

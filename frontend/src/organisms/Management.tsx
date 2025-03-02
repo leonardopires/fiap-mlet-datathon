@@ -54,13 +54,13 @@ const Management: React.FC<ManagementProps> = ({
     const initialize = async () => {
       try {
         // Verificar status do modelo
-        const trainResponse = await axios.get('http://localhost:8000/train/status');
+        const trainResponse = await axios.get(`http://${window.location.hostname}:8000/train/status`);
         if (trainResponse.data.progress === 'completed') {
           setIsModelTrained(true);
         }
 
         // Buscar métricas existentes, sem iniciar cálculo
-        const metricsResponse = await axios.get('http://localhost:8000/metrics', {
+        const metricsResponse = await axios.get(`http://${window.location.hostname}:8000/metrics`, {
           params: { force_recalc: false, fetch_only_existing: true }
         });
         if (metricsResponse.data.metrics) {
@@ -85,7 +85,7 @@ const Management: React.FC<ManagementProps> = ({
         }
       }
       payload.force_retrain = forceRetrain;
-      await axios.post('http://localhost:8000/train', payload);
+      await axios.post(`http://${window.location.hostname}:8000/train`, payload);
       if (isModelTrained && !forceRetrain) {
         showSnackbar('Modelo já treinado; dados existentes foram utilizados.', 'info');
       } else {
@@ -99,7 +99,7 @@ const Management: React.FC<ManagementProps> = ({
 
   const fetchMetrics = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/metrics', { params: { force_recalc: forceRecalc } });
+      const response = await axios.get(`http://${window.location.hostname}:8000/metrics`, { params: { force_recalc: forceRecalc } });
       setMetrics(response.data.metrics || null);
       showSnackbar('Métricas carregadas com sucesso!', 'success');
     } catch (error) {
@@ -227,7 +227,7 @@ const Management: React.FC<ManagementProps> = ({
               <CardHeader title="Documentação da API" />
               <CardContent>
                 <iframe
-                  src="http://localhost:8000/docs"
+                  src={`http://${window.location.hostname}:8000/docs`}
                   title="Swagger UI"
                   css={css`
                     width: 100%;

@@ -17,7 +17,7 @@ const App: React.FC = () => {
   const statusWsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8000/ws/status');
+    const ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/status`);
     statusWsRef.current = ws;
     ws.onopen = () => console.log('WebSocket de status conectado');
     ws.onmessage = (event) => {
@@ -29,7 +29,7 @@ const App: React.FC = () => {
     ws.onerror = (error) => console.error('Erro no WebSocket de status:', error);
     ws.onclose = () => {
       console.log('WebSocket de status desconectado. Tentando reconectar...');
-      setTimeout(() => (statusWsRef.current = new WebSocket('ws://localhost:8000/ws/status')), 1000);
+      setTimeout(() => (statusWsRef.current = new WebSocket(`ws://${window.location.hostname}:8000/ws/status`)), 1000);
     };
     return () => ws.close();
   }, []);
