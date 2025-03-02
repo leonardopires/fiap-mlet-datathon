@@ -6,7 +6,8 @@ import ExpandLess from '@mui/icons-material/ExpandLess';
 import Sidebar from '../organisms/Sidebar';
 import LogPanel from '../organisms/LogPanel';
 import Authors from '../molecules/Authors';
-import { SnackbarProvider } from '../contexts/SnackbarContext'; // Importe o provedor
+import { SnackbarProvider } from '../contexts/SnackbarContext';
+import {authors} from "../models/Author"; // Importe o provedor
 
 interface MainLayoutProps {
   activeKey: string;
@@ -30,14 +31,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({ activeKey, setActiveKey, childr
     padding: 30px;
     margin-left: 60px;
     overflow-y: auto;
-    margin-bottom: 210px;
+    margin-bottom: ${logsVisible ? '210px' : '0'};
   `;
 
-  const authors = [
-    { name: 'Leonardo T. Pires', github: 'leonardopires', rm: 'RM355401' },
-    { name: 'Felipe de Paula G.', github: 'Felipe-DePaula', rm: 'RM355402' },
-    { name: 'Jorge Guilherme D. W.', github: 'JorgeWald', rm: 'RM355849' },
-  ];
 
   return (
     <SnackbarProvider>

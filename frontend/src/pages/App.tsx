@@ -22,6 +22,7 @@ const App: React.FC = () => {
     ws.onopen = () => console.log('WebSocket de status conectado');
     ws.onmessage = (event) => {
       const status = JSON.parse(event.data);
+      console.log("Status recebido: ", status)
       setTrainingStatus(status.training);
       setMetricsStatus(status.metrics);
     };

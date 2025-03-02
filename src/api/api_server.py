@@ -22,8 +22,9 @@ from .model_manager import ModelManager
 from .models import TrainRequest, UserRequest, PredictionResponse
 
 # Configura o logger raiz para capturar todos os logs, incluindo os do Uvicorn
-log_path = os.path.join('logs', 'app.log')
-os.makedirs('logs', exist_ok=True)
+log_path = os.path.join('data/logs', 'app.log')
+os.makedirs('data', exist_ok=True)
+os.makedirs('data/logs', exist_ok=True)
 
 log_handler = RotatingFileHandler(log_path, maxBytes=50 * 1024 * 1024, backupCount=5)
 
@@ -195,7 +196,7 @@ class APIServer:
             start_time = time.time()
             logger.info(f"Requisição de predição para {request.user_id} em background")
             self.prediction_status["progress"] = "predicting"
-            predictions = self.model_manager.predict(self.state, request.user_id, request.keywords)
+            predictions = self.model_manager.predict(self.state, request.user_id, keywords=request.keywords)
             elapsed = time.time() - start_time
             logger.info(f"Predição concluída em {elapsed:.2f} segundos")
             self.prediction_status["progress"] = "completed"
@@ -244,7 +245,7 @@ class APIServer:
 
             start_time = time.time()
             logger.info(f"Requisição de predição para {request.user_id}")
-            predictions = self.model_manager.predict(self.state, request.user_id, request.keywords)
+            predictions = self.model_manager.predict(self.state, request.user_id, number_of_records=20, keywords=request.keywords)
             elapsed = time.time() - start_time
             logger.info(f"Predição concluída em {elapsed:.2f} segundos")
             return {"user_id": request.user_id, "acessos_futuros": predictions}
