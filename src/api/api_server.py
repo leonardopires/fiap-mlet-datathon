@@ -9,7 +9,7 @@ import time
 from logging.handlers import RotatingFileHandler
 import os
 
-from starlette.websockets import WebSocketState
+from starlette.websockets import WebSocketState, WebSocketDisconnect
 
 from src.data_loader import DataLoader
 from src.predictor import Predictor
@@ -25,11 +25,16 @@ from .models import TrainRequest, UserRequest, PredictionResponse
 log_path = os.path.join('logs', 'app.log')
 os.makedirs('logs', exist_ok=True)
 
+log_handler = RotatingFileHandler(log_path, maxBytes=50 * 1024 * 1024, backupCount=5)
+
+if os.path.exists(log_path):
+    log_handler.doRollover()
+
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='recomendador-g1 | %(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        RotatingFileHandler(log_path, maxBytes=50 * 1024 * 1024, backupCount=5),
+        log_handler,
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -71,22 +76,23 @@ class APIServer:
     async def _handle_websocket(self, websocket: WebSocket, callback: callable, callback_name: str):
         """Gerencia conexão WebSocket, executa a callback e trata erros de forma genérica."""
         await websocket.accept()
-        logger.info(f"WebSocket de {callback_name} conectado")
+        logger.debug(f"WebSocket de {callback_name} conectado")
         try:
             if websocket.client_state != WebSocketState.DISCONNECTED:
                 await callback(websocket)
             else:
                 logger.info(f"WebSocket de {callback_name} desconectado")
-        except RuntimeError as re:
-            logger.info(f"WebSocket de {callback_name} desconectado normalmente: {re}")
+        except WebSocketDisconnect as re:
+            logger.debug(f"WebSocket de {callback_name} desconectado normalmente:")
         except Exception as ex:
-            logger.error(f"Erro no WebSocket de {callback_name}: {ex}")
+            logger.error(f"Erro no WebSocket de {callback_name}:", ex)
+            raise ex
         finally:
             try:
-                if websocket.client_state != WebSocketState.DISCONNECTED:
+                if websocket.client_state != WebSocketState.CONNECTED:
                     await websocket.close()
             except Exception as e:
-                logger.debug(f"Ignorando erro ao fechar WebSocket de {callback_name}: {e}")
+                logger.debug(f"Ignorando erro ao fechar WebSocket de {callback_name}:", e)
 
     def _read_and_filter_logs(self, limit: int = 2000) -> list[str]:
         try:
@@ -277,10 +283,16 @@ class APIServer:
             await self._handle_websocket(websocket, logs_callback, "logs")
 
         @self.app.get("/metrics", response_model=dict)
-        async def get_metrics(force_recalc: bool = False, background_tasks: BackgroundTasks = None):
+        async def get_metrics(
+                force_recalc: bool = False,
+                fetch_only_existing: bool = False,
+                background_tasks: BackgroundTasks = None
+        ):
             logger.info("Requisição para obter métricas recebida")
             if hasattr(self.state, 'metrics') and not force_recalc:
                 return {"metrics": self.state.metrics}
+            if fetch_only_existing:
+                return {"metrics": None}  # Retorna null se não houver métricas salvas
             background_tasks.add_task(self._calculate_metrics_background, force_recalc)
             return {"message": "Cálculo de métricas iniciado em background; acompanhe via /metrics/status"}
 

@@ -66,7 +66,7 @@ class MetricsCalculator:
 
             # Carrega embedding do usuário na CPU
             user_emb = torch.tensor(self.state.USER_PROFILES[user_id], dtype=torch.float32)
-            logger.debug(f"Embedding do usuário {user_id}: shape={user_emb.shape}")
+            logger.info(f"Embedding do usuário {user_id}: shape={user_emb.shape}")
 
             # Processar notícias em lotes
             scores_all = []
@@ -74,15 +74,15 @@ class MetricsCalculator:
             for batch_start in range(0, total_notcias, batch_size_noticias):
                 batch_end = min(batch_start + batch_size_noticias, total_notcias)
                 batch_notcias = noticias.iloc[batch_start:batch_end]
-                logger.debug(f"Processando lote de notícias {batch_start} a {batch_end} de {total_notcias}")
+                logger.info(f"Processando lote de notícias {batch_start} a {batch_end} de {total_notcias}")
 
                 # Carrega embeddings do lote atual na CPU
                 news_embs = torch.tensor(np.array(batch_notcias['embedding'].tolist()), dtype=torch.float32)
-                logger.debug(f"Embeddings de notícias do lote: shape={news_embs.shape}")
+                logger.info(f"Embeddings de notícias do lote: shape={news_embs.shape}")
 
                 # Expande o embedding do usuário para o lote atual
                 user_emb_batch = user_emb.unsqueeze(0).expand(len(news_embs), -1)
-                logger.debug(f"Embedding do usuário expandido: shape={user_emb_batch.shape}")
+                logger.info(f"Embedding do usuário expandido: shape={user_emb_batch.shape}")
 
                 # Calcula scores na CPU usando similaridade de cosseno
                 with torch.no_grad():
@@ -93,7 +93,7 @@ class MetricsCalculator:
                     scores = torch.sum(user_emb_norm * news_embs_norm, dim=1)
                     # Adiciona ruído
                     scores = scores + torch.rand(scores.shape) * 0.1
-                logger.debug(f"Scores do lote: shape={scores.shape}")
+                logger.info(f"Scores do lote: shape={scores.shape}")
                 scores_all.append(scores)
 
                 # Libera memória
@@ -101,7 +101,7 @@ class MetricsCalculator:
 
             # Converte scores_all para tensor e obtém os top-k índices
             scores_all = torch.cat(scores_all, dim=0)  # [total_notcias]
-            logger.debug(f"Scores totais: shape={scores_all.shape}")
+            logger.info(f"Scores totais: shape={scores_all.shape}")
 
             # Obtém os top-k índices
             effective_k = min(k, len(scores_all))
@@ -115,7 +115,7 @@ class MetricsCalculator:
             # Ground truth (histórico do usuário)
             user_history = interacoes[interacoes['userId'] == user_id]['history'].iloc[0].split(', ')
             relevant_items = set(user_history)
-            logger.debug(f"Usuário {user_id}: {len(relevant_items)} itens relevantes no histórico")
+            logger.info(f"Usuário {user_id}: {len(relevant_items)} itens relevantes no histórico")
 
             # Precisão@k e Recall@k
             top_k_set = set(top_pages)
@@ -147,7 +147,7 @@ class MetricsCalculator:
                 del top_embeddings, top_embeddings_norm, sim_matrix
 
             elapsed_user = time.time() - user_start_time
-            logger.debug(f"Usuário {user_id} processado em {elapsed_user:.2f} segundos: "
+            logger.info(f"Usuário {user_id} processado em {elapsed_user:.2f} segundos: "
                          f"Precisão@{k}={precision_at_k:.4f}, Recall@{k}={recall_at_k:.4f}")
 
         # Cobertura

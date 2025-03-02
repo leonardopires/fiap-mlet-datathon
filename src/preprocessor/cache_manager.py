@@ -78,7 +78,7 @@ class CacheManager:
             f.create_dataset('embeddings', data=embeddings, compression="gzip", compression_opts=4)
             dt = h5py.string_dtype(encoding='utf-8')  # Formato especial para textos
             f.create_dataset('user_ids', data=np.array(user_ids, dtype=object), dtype=dt)
-            logger.debug(f"Salvou {len(user_ids)} perfis como matriz única")
+            logger.info(f"Salvou {len(user_ids)} perfis como matriz única")
         elapsed = time.time() - start_time
         logger.info(f"Perfis salvos em {cache_file} em {elapsed:.2f} segundos")
 

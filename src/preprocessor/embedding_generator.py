@@ -58,7 +58,7 @@ class EmbeddingGenerator:
             texts = titles
 
         total_batches = (len(texts) + self.batch_size - 1) // self.batch_size
-        logger.debug(f"Preparando {len(texts)} textos para codificação em {total_batches} batches")
+        logger.info(f"Preparando {len(texts)} textos para codificação em {total_batches} batches")
 
         with torch.amp.autocast('cuda'):
             embeddings = model.encode(

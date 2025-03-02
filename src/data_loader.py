@@ -35,7 +35,7 @@ class DataLoader:
         concat_start = time.time()
         dataframes = []
         for i, file in enumerate(files):
-            logger.debug(f"Carregando arquivo {i + 1}/{len(files)}: {file}")
+            logger.info(f"Carregando arquivo {i + 1}/{len(files)}: {file}")
             df = pd.read_csv(file)
             dataframes.append(df)
         concat_df = pd.concat(dataframes, ignore_index=True)

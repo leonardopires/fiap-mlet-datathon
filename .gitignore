@@ -19,6 +19,7 @@ __pycache__/
 *.pyd
 .Python
 *.log
+logs/
 
 # Arquivos Gerados
 submission.csv
