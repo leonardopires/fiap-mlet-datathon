@@ -2,8 +2,9 @@ import logging
 from sentence_transformers import SentenceTransformer
 import torch
 import numpy as np
-from typing import List
+from typing import List, Optional
 import time
+import pandas as pd
 
 # Configura o logger para registrar mensagens úteis durante a execução
 logger = logging.getLogger(__name__)
@@ -31,39 +32,43 @@ class EmbeddingGenerator:
         # Informa no log qual dispositivo (GPU ou CPU) estamos usando
         logger.info(f"EmbeddingGenerator inicializado no dispositivo: {self.device}")
 
-    def generate_embeddings(self, titles: List[str]) -> np.ndarray:
+    def generate_embeddings(self, titles: List[str], noticias_df: Optional[pd.DataFrame] = None) -> np.ndarray:
         """
-        Transforma uma lista de títulos de notícias em embeddings (números que representam o significado).
+        Transforma uma lista de títulos de notícias em embeddings, opcionalmente combinando com conteúdo.
 
         Args:
             titles (List[str]): Lista de títulos das notícias.
+            noticias_df (Optional[pd.DataFrame]): DataFrame com dados das notícias, incluindo 'body' (opcional).
 
         Returns:
-            np.ndarray: Um array (como uma tabela) de números, onde cada linha é o embedding de um título.
+            np.ndarray: Um array de embeddings representando títulos (e conteúdo, se fornecido).
         """
-        # Marca o tempo inicial para medir quanto demora
         start_time = time.time()
         logger.info("Gerando novos embeddings para notícias em batches")
 
-        # Carrega o modelo que entende texto e o coloca no dispositivo escolhido (GPU ou CPU)
         model = SentenceTransformer(self.model_name).to(self.device)
 
-        # Calcula quantos grupos (batches) precisamos para processar todos os títulos
-        total_batches = (len(titles) + self.batch_size - 1) // self.batch_size
-        logger.debug(f"Preparando {len(titles)} títulos para codificação em {total_batches} batches")
+        # Se noticias_df for fornecido e tiver 'body', combinar títulos com conteúdo
+        if noticias_df is not None and 'body' in noticias_df.columns:
+            logger.info("Combinando títulos com conteúdo para embeddings")
+            texts = [f"{title} {body}" if pd.notna(body) else title
+                     for title, body in zip(titles, noticias_df['body'])]
+        else:
+            logger.info("Usando apenas títulos para embeddings")
+            texts = titles
 
-        # Usa uma técnica para fazer os cálculos mais rápido na GPU, se disponível, com a nova sintaxe do PyTorch
-        with torch.amp.autocast('cuda'):  # Atualizado de torch.cuda.amp.autocast() para eliminar o FutureWarning
-            # Converte os títulos em embeddings usando o modelo
+        total_batches = (len(texts) + self.batch_size - 1) // self.batch_size
+        logger.debug(f"Preparando {len(texts)} textos para codificação em {total_batches} batches")
+
+        with torch.amp.autocast('cuda'):
             embeddings = model.encode(
-                titles,  # Os títulos que queremos transformar
-                batch_size=self.batch_size,  # Quantos títulos processar de uma vez
-                convert_to_tensor=True,  # Retorna os resultados como "tensores" (um formato que a GPU gosta)
-                device=self.device,  # Onde fazer os cálculos (GPU ou CPU)
-                show_progress_bar=True  # Mostra uma barra de progresso no terminal
-            ).cpu().numpy()  # Move os resultados para a CPU e transforma em um array simples
+                texts,
+                batch_size=self.batch_size,
+                convert_to_tensor=True,
+                device=self.device,
+                show_progress_bar=True
+            ).cpu().numpy()
 
-        # Calcula quanto tempo levou e informa no log
         elapsed = time.time() - start_time
-        logger.info(f"Embeddings gerados para {len(titles)} títulos em {elapsed:.2f} segundos")
+        logger.info(f"Embeddings gerados para {len(texts)} textos em {elapsed:.2f} segundos")
         return embeddings

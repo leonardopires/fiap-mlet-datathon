@@ -81,9 +81,11 @@ class UserProfileBuilder:
                                                   dtype=torch.float32)  # Transforma pesos em tensor
                     # Multiplica cada embedding pelo seu peso e soma tudo
                     weighted_sum = torch.sum(embeddings_tensor * weights_tensor.unsqueeze(1), dim=0)
-                    total_weight = torch.sum(weights_tensor)  # Soma todos os pesos
+                    total_weight = torch.sum(weights_tensor)
                     # Divide pela soma dos pesos para obter uma média ponderada
-                    user_profiles[user_id] = (weighted_sum / total_weight).cpu().numpy()
+                    profile = weighted_sum / total_weight
+                    profile = profile / torch.norm(profile)  # Normalizar
+                    user_profiles[user_id] = profile.cpu().numpy()
 
         elapsed = time.time() - start_time
         logger.info(f"Construção dos perfis concluída em {elapsed:.2f} segundos")

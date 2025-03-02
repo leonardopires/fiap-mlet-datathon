@@ -8,9 +8,9 @@ from .state_manager import StateManager
 import time
 import joblib
 import os
+import re
 
 logger = logging.getLogger(__name__)
-
 
 class ModelManager:
     def __init__(self, trainer: Trainer, predictor_class: type):
@@ -24,8 +24,8 @@ class ModelManager:
         if not force_retrain and os.path.exists(regressor_file):
             logger.info("Modelo treinado encontrado em regressor.pkl; carregando modelo existente")
             state.REGRESSOR = joblib.load(regressor_file)
-            state.PREDICTOR = self.predictor_class(state.INTERACOES, state.NOTICIAS, state.USER_PROFILES,
-                                                   state.REGRESSOR)
+            state.PREDICTOR = self.predictor_class(state.INTERACOES, state.NOTICIAS, state.USER_PROFILES, state.REGRESSOR)
+            logger.info("Modelo pré-treinado carregado com sucesso; pronto para predições e cálculo de métricas")
             return
 
         start_time = time.time()
@@ -34,8 +34,7 @@ class ModelManager:
         if state.REGRESSOR:
             joblib.dump(state.REGRESSOR, regressor_file)
             logger.info(f"Modelo treinado salvo em {regressor_file}")
-            state.PREDICTOR = self.predictor_class(state.INTERACOES, state.NOTICIAS, state.USER_PROFILES,
-                                                   state.REGRESSOR)
+            state.PREDICTOR = self.predictor_class(state.INTERACOES, state.NOTICIAS, state.USER_PROFILES, state.REGRESSOR)
             elapsed = time.time() - start_time
             logger.info(f"Treinamento concluído em {elapsed:.2f} segundos")
         else:
@@ -46,13 +45,16 @@ class ModelManager:
             logger.warning("Modelo não treinado")
             raise HTTPException(status_code=400, detail="Modelo não treinado")
 
+        padrao = r"/noticia/(\d{4}/\d{2}/\d{2})/"
         start_time = time.time()
         if user_id not in state.USER_PROFILES:
             logger.info(f"Usuário {user_id} não encontrado; aplicando cold-start")
             popular_news = self.trainer.handle_cold_start(state.NOTICIAS, keywords)
-            predictions = [{"page": page, "title": state.NOTICIAS[state.NOTICIAS['page'] == page]['title'].iloc[0],
-                            "link": state.NOTICIAS[state.NOTICIAS['page'] == page]['url'].iloc[0]}
-                           for page in popular_news]
+            predictions = [{
+                "page": page,
+                "title": state.NOTICIAS[state.NOTICIAS['page'] == page]['title'].iloc[0],
+                "link": state.NOTICIAS[state.NOTICIAS['page'] == page]['url'].iloc[0],
+            } for page in popular_news]
         else:
             predictions = state.PREDICTOR.predict(user_id)
         elapsed = time.time() - start_time

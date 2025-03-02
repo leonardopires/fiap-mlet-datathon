@@ -12,7 +12,8 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - TOKENIZERS_PARALLELISM=true
-    command: uvicorn src.app:app --host 0.0.0.0 --port 8000
+    # Habilita o runtime NVIDIA para suporte a GPU no WSL 2
+    runtime: nvidia
     deploy:
       resources:
         reservations:
@@ -34,6 +35,10 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+      - GENERATE_SOURCEMAP=true
     command: npm start
     depends_on:
       - recomendador
