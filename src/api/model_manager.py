@@ -12,7 +12,6 @@ import re
 
 logger = logging.getLogger(__name__)
 
-
 class ModelManager:
     def __init__(self, trainer: Trainer, predictor_class: type):
         self.trainer = trainer
@@ -25,8 +24,8 @@ class ModelManager:
         if not force_retrain and os.path.exists(regressor_file):
             logger.info("Modelo treinado encontrado em regressor.pkl; carregando modelo existente")
             state.REGRESSOR = joblib.load(regressor_file)
-            state.PREDICTOR = self.predictor_class(state.INTERACOES, state.NOTICIAS, state.USER_PROFILES,
-                                                   state.REGRESSOR)
+            state.PREDICTOR = self.predictor_class(state.INTERACOES, state.NOTICIAS, state.USER_PROFILES, state.REGRESSOR)
+            logger.info("Modelo pré-treinado carregado com sucesso; pronto para predições e cálculo de métricas")
             return
 
         start_time = time.time()
@@ -35,8 +34,7 @@ class ModelManager:
         if state.REGRESSOR:
             joblib.dump(state.REGRESSOR, regressor_file)
             logger.info(f"Modelo treinado salvo em {regressor_file}")
-            state.PREDICTOR = self.predictor_class(state.INTERACOES, state.NOTICIAS, state.USER_PROFILES,
-                                                   state.REGRESSOR)
+            state.PREDICTOR = self.predictor_class(state.INTERACOES, state.NOTICIAS, state.USER_PROFILES, state.REGRESSOR)
             elapsed = time.time() - start_time
             logger.info(f"Treinamento concluído em {elapsed:.2f} segundos")
         else:

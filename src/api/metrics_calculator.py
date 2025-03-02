@@ -12,14 +12,14 @@ logger = logging.getLogger(__name__)
 class MetricsCalculator:
     def __init__(self, state):
         self.state = state
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cpu")  # Forçar CPU para evitar erros de memória
         self.cache_manager = CacheManager()
         logger.info(f"MetricsCalculator inicializado no dispositivo: {self.device}")
 
     def calculate_metrics(self, k=10, force_recalc=False):
         cache_file = 'data/cache/metrics_cache.h5'
         start_time = time.time()
-        logger.info(f"Iniciando cálculo de métricas de avaliação para top-{k} na GPU")
+        logger.info(f"Iniciando cálculo de métricas de avaliação para top-{k} na CPU")
 
         # Verifica cache se não forçar recálculo
         if not force_recalc and os.path.exists(cache_file):
@@ -41,7 +41,7 @@ class MetricsCalculator:
 
         user_interactions = interacoes.groupby('userId')['history'].apply(lambda x: len(x.iloc[0].split(', ')))
         active_users = user_interactions[user_interactions > 5].index  # Usuários com >5 interações
-        user_ids = np.random.choice(active_users, size=min(1000, len(active_users)), replace=False)  # Reduzido para 1000
+        user_ids = np.random.choice(active_users, size=min(500, len(active_users)), replace=False)  # Reduzido para 500
         logger.info(f"Selecionados {len(user_ids)} usuários ativos de {len(active_users)} com >5 interações")
         logger.info(f"Carregados {len(interacoes)} registros de interações e {len(noticias)} notícias")
 
@@ -55,7 +55,7 @@ class MetricsCalculator:
         recommended_items = set()
 
         # Configurar batching para embeddings de notícias
-        batch_size = 10000  # Processar 10.000 notícias por vez
+        batch_size_noticias = 5000  # Reduzido para 5000 notícias por vez
         total_notcias = len(noticias)
 
         for user_idx, user_id in enumerate(user_ids):
@@ -64,39 +64,43 @@ class MetricsCalculator:
                 logger.warning(f"Usuário {user_id} não encontrado nos perfis; pulando")
                 continue
 
-            # Carrega embedding do usuário na GPU
-            user_emb = torch.tensor(self.state.USER_PROFILES[user_id], dtype=torch.float32).to(self.device)
+            # Carrega embedding do usuário na CPU
+            user_emb = torch.tensor(self.state.USER_PROFILES[user_id], dtype=torch.float32)
             logger.debug(f"Embedding do usuário {user_id}: shape={user_emb.shape}")
 
             # Processar notícias em lotes
             scores_all = []
 
-            for batch_start in range(0, total_notcias, batch_size):
-                batch_end = min(batch_start + batch_size, total_notcias)
+            for batch_start in range(0, total_notcias, batch_size_noticias):
+                batch_end = min(batch_start + batch_size_noticias, total_notcias)
                 batch_notcias = noticias.iloc[batch_start:batch_end]
                 logger.debug(f"Processando lote de notícias {batch_start} a {batch_end} de {total_notcias}")
 
-                # Carrega embeddings do lote atual na GPU
-                news_embs = torch.tensor(np.array(batch_notcias['embedding'].tolist()), dtype=torch.float32).to(self.device)
+                # Carrega embeddings do lote atual na CPU
+                news_embs = torch.tensor(np.array(batch_notcias['embedding'].tolist()), dtype=torch.float32)
                 logger.debug(f"Embeddings de notícias do lote: shape={news_embs.shape}")
 
                 # Expande o embedding do usuário para o lote atual
                 user_emb_batch = user_emb.unsqueeze(0).expand(len(news_embs), -1)
                 logger.debug(f"Embedding do usuário expandido: shape={user_emb_batch.shape}")
 
-                # Calcula scores na GPU
+                # Calcula scores na CPU usando similaridade de cosseno
                 with torch.no_grad():
-                    scores = self.state.REGRESSOR(user_emb_batch, news_embs)
-                    scores = scores.squeeze(-1) + torch.rand(scores.shape, device=self.device) * 0.1  # Adicionar ruído
+                    # Normaliza os embeddings
+                    user_emb_norm = user_emb_batch / torch.norm(user_emb_batch, dim=1, keepdim=True)
+                    news_embs_norm = news_embs / torch.norm(news_embs, dim=1, keepdim=True)
+                    # Calcula similaridade de cosseno
+                    scores = torch.sum(user_emb_norm * news_embs_norm, dim=1)
+                    # Adiciona ruído
+                    scores = scores + torch.rand(scores.shape) * 0.1
                 logger.debug(f"Scores do lote: shape={scores.shape}")
-                scores_all.extend(scores.cpu().numpy())  # Move para CPU e converte para lista
+                scores_all.append(scores)
 
-                # Libera memória da GPU
-                del news_embs, user_emb_batch, scores
-                torch.cuda.empty_cache()
+                # Libera memória
+                del news_embs, user_emb_batch, user_emb_norm, news_embs_norm, scores
 
             # Converte scores_all para tensor e obtém os top-k índices
-            scores_all = torch.tensor(scores_all, dtype=torch.float32)
+            scores_all = torch.cat(scores_all, dim=0)  # [total_notcias]
             logger.debug(f"Scores totais: shape={scores_all.shape}")
 
             # Obtém os top-k índices
@@ -129,10 +133,10 @@ class MetricsCalculator:
             else:
                 mrr_total.append(0)
 
-            # ILS (similaridade intra-lista) na GPU
+            # ILS (similaridade intra-lista) na CPU
             if len(top_pages) > 1:
                 top_indices_tensor = torch.tensor([noticias[noticias['page'] == page].index[0] for page in top_pages], dtype=torch.long)
-                top_embeddings = torch.tensor(np.array(noticias['embedding'].iloc[top_indices_tensor].tolist()), dtype=torch.float32).to(self.device)
+                top_embeddings = torch.tensor(np.array(noticias['embedding'].iloc[top_indices_tensor].tolist()), dtype=torch.float32)
                 if len(top_embeddings) > 1:
                     top_embeddings_norm = top_embeddings / torch.norm(top_embeddings, dim=1, keepdim=True)
                     sim_matrix = top_embeddings_norm @ top_embeddings_norm.T
@@ -141,7 +145,6 @@ class MetricsCalculator:
 
                 # Libera memória
                 del top_embeddings, top_embeddings_norm, sim_matrix
-                torch.cuda.empty_cache()
 
             elapsed_user = time.time() - user_start_time
             logger.debug(f"Usuário {user_id} processado em {elapsed_user:.2f} segundos: "

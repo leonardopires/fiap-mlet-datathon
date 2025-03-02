@@ -1,5 +1,5 @@
 /** @jsxImportSource @emotion/react */
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {css} from '@emotion/react';
 import {
   FormControlLabel,
@@ -17,7 +17,8 @@ import Button from '../atoms/Button';
 import FormField from '../molecules/FormField';
 import DescriptionIcon from '@mui/icons-material/Description';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import {useSnackbar} from '../contexts/SnackbarContext'; // Importando do contexts
+import {useSnackbar} from '../contexts/SnackbarContext';
+import Alert from "../atoms/Alert";
 
 interface Status {
   running: boolean;
@@ -44,6 +45,22 @@ const Management: React.FC<ManagementProps> = ({
   const [forceRecalc, setForceRecalc] = useState<boolean>(false);
   const [metrics, setMetrics] = useState<any>(null);
   const [forceRetrain, setForceRetrain] = useState<boolean>(false);
+  const [isModelTrained, setIsModelTrained] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Verifica se o modelo já está treinado ao carregar o componente
+    const checkModelStatus = async () => {
+      try {
+        const response = await axios.get('http://localhost:8000/train/status');
+        if (response.data.progress === 'completed') {
+          setIsModelTrained(true);
+        }
+      } catch (error) {
+        console.error('Erro ao verificar status do modelo:', error);
+      }
+    };
+    checkModelStatus();
+  }, []);
 
   const startTraining = async () => {
     try {
@@ -58,7 +75,11 @@ const Management: React.FC<ManagementProps> = ({
       }
       payload.force_retrain = forceRetrain;
       await axios.post('http://localhost:8000/train', payload);
-      showSnackbar('Treinamento iniciado com sucesso!', 'success');
+      if (isModelTrained && !forceRetrain) {
+        showSnackbar('Modelo já treinado; dados existentes foram utilizados.', 'info');
+      } else {
+        showSnackbar('Treinamento iniciado com sucesso!', 'success');
+      }
     } catch (error) {
       console.error('Erro ao iniciar treinamento:', error);
       showSnackbar('Erro ao iniciar treinamento.', 'error');
@@ -123,6 +144,12 @@ const Management: React.FC<ManagementProps> = ({
             <Card>
               <CardHeader title="Treinamento do Modelo"/>
               <CardContent>
+                {isModelTrained && !forceRetrain && (
+                  <Alert variant="info" css={css`margin-bottom: 15px;`}>
+                    Modelo já treinado e pronto para uso. Clique em "Iniciar Treinamento" para usar os dados existentes
+                    ou marque "Forçar Novo Treinamento" para re-treinar.
+                  </Alert>
+                )}
                 <FormGroup css={css`margin-bottom: 15px;`}>
                   <FormField
                     id="subsampleFrac"
