@@ -1,14 +1,18 @@
 /** @jsxImportSource @emotion/react */
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Snackbar, Alert as MuiAlert, AlertColor } from '@mui/material';
+import { Snackbar, Alert as MuiAlert, AlertColor, CircularProgress, IconButton } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 
 interface SnackbarMessage {
+  id: string; // Identificador único para cada mensagem
   message: string;
   severity: AlertColor;
+  loading?: boolean; // Indica se a mensagem está em estado de carregamento
 }
 
 interface SnackbarContextType {
-  showSnackbar: (message: string, severity?: AlertColor) => void;
+  showSnackbar: (message: string, severity?: AlertColor, loading?: boolean) => void;
+  updateSnackbar: (id: string, message: string, severity?: AlertColor, loading?: boolean) => void;
 }
 
 const SnackbarContext = createContext<SnackbarContextType | undefined>(undefined);
@@ -26,48 +30,72 @@ interface SnackbarProviderProps {
 }
 
 export const SnackbarProvider: React.FC<SnackbarProviderProps> = ({ children }) => {
-  const [snackbar, setSnackbar] = useState<SnackbarMessage | null>(null);
-  const [open, setOpen] = useState(false);
+  const [snackbars, setSnackbars] = useState<SnackbarMessage[]>([]);
 
-  const showSnackbar = (message: string, severity: AlertColor = 'info') => {
-    setSnackbar({ message, severity });
-    setOpen(true);
+  // Função para gerar um ID único para cada mensagem
+  const generateId = () => Date.now().toString() + Math.random().toString(36).substr(2, 9);
+
+  const showSnackbar = (message: string, severity: AlertColor = 'info', loading: boolean = false) => {
+    // Evitar duplicatas: verificar se já existe uma mensagem idêntica
+    const exists = snackbars.some(
+      (snack) => snack.message === message && snack.severity === severity && snack.loading === loading
+    );
+    if (exists) return;
+
+    const id = generateId();
+    setSnackbars((prev) => [...prev, { id, message, severity, loading }]);
   };
 
-  const handleClose = () => {
-    setOpen(false);
-    // Atrasar a limpeza do estado para garantir que a transição termine
-    setTimeout(() => setSnackbar(null), 200);
+  // Função para atualizar uma mensagem existente (ex.: mudar de loading para sucesso/erro)
+  const updateSnackbar = (id: string, message: string, severity?: AlertColor, loading: boolean = false) => {
+    setSnackbars((prev) =>
+      prev.map((snack) =>
+        snack.id === id
+          ? { ...snack, message, severity: severity || snack.severity, loading }
+          : snack
+      )
+    );
   };
 
-  // Limpeza ao desmontar o componente
-  useEffect(() => {
-    return () => {
-      setOpen(false);
-      setSnackbar(null);
-    };
-  }, []);
+  const handleClose = (id: string) => {
+    setSnackbars((prev) => prev.filter((snack) => snack.id !== id));
+  };
 
   return (
-    <SnackbarContext.Provider value={{ showSnackbar }}>
+    <SnackbarContext.Provider value={{ showSnackbar, updateSnackbar }}>
       {children}
-      <Snackbar
-        open={open}
-        autoHideDuration={6000}
-        onClose={handleClose}
-        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-        TransitionProps={{ onExited: handleClose }} // Garante que o estado seja limpo após a transição
-      >
-        {snackbar ? (
+      {snackbars.map((snack) => (
+        <Snackbar
+          key={snack.id}
+          open={true}
+          autoHideDuration={snack.loading ? null : 6000} // Não fechar automaticamente se estiver carregando
+          onClose={() => handleClose(snack.id)}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+          sx={{ marginTop: `${snackbars.indexOf(snack) * 60}px` }} // Empilhar mensagens
+        >
           <MuiAlert
-            severity={snackbar.severity}
+            severity={snack.severity}
             variant={'filled'}
             sx={{ width: '100%' }}
+            action={
+              <>
+                {snack.loading && <CircularProgress size={20} sx={{ marginRight: 2 }} />}
+                {!snack.loading && (
+                  <IconButton
+                    size="small"
+                    color="inherit"
+                    onClick={() => handleClose(snack.id)}
+                  >
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                )}
+              </>
+            }
           >
-            {snackbar.message}
+            {snack.message}
           </MuiAlert>
-        ) : undefined}
-      </Snackbar>
+        </Snackbar>
+      ))}
     </SnackbarContext.Provider>
   );
 };

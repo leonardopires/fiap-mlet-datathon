@@ -1,5 +1,5 @@
 /** @jsxImportSource @emotion/react */
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { css } from '@emotion/react';
 import {
   Grid,
@@ -8,16 +8,96 @@ import {
   Tooltip,
   IconButton,
   useTheme,
+  Button,
+  Collapse,
 } from '@mui/material';
+import axios from 'axios';
 import InfoIcon from '@mui/icons-material/Info';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { useSnackbar } from '../contexts/SnackbarContext';
 import { metricsConfig, MetricDefinition } from '../utils/metricsConfig';
 
 interface MetricsDisplayProps {
   metrics: { [key: string]: number };
 }
 
+interface InterpretationStatus {
+  running: boolean;
+  progress: string;
+  error: string | null;
+  interpretation: string | null;
+}
+
 const MetricsDisplay: React.FC<MetricsDisplayProps> = ({ metrics }) => {
   const theme = useTheme();
+  const { showSnackbar, updateSnackbar } = useSnackbar();
+  const [showInterpretation, setShowInterpretation] = useState<boolean>(false);
+  const [interpretation, setInterpretation] = useState<string | null>(null);
+  const [interpretationStatus, setInterpretationStatus] = useState<InterpretationStatus>({
+    running: false,
+    progress: 'idle',
+    error: null,
+    interpretation: null,
+  });
+  const [interpretationId, setInterpretationId] = useState<string | null>(null);
+  const statusWsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    const ws = new WebSocket('ws://localhost:8000/ws/interpret/status');
+    statusWsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('WebSocket de status de interpretação conectado');
+    };
+
+    ws.onmessage = (event) => {
+      const status: InterpretationStatus = JSON.parse(event.data);
+      console.log('Status de interpretação recebido:', status); // Log para depuração
+      setInterpretationStatus(status);
+
+      if (status.running) {
+        if (!interpretationId) {
+          console.log('Iniciando mensagem de carregamento no Snackbar');
+          showSnackbar(`Interpretação em andamento: ${status.progress}`, 'info', true);
+          const id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+          setInterpretationId(id);
+        } else {
+          console.log('Atualizando mensagem de carregamento no Snackbar:', interpretationId);
+          updateSnackbar(interpretationId, `Interpretação em andamento: ${status.progress}`, 'info', true);
+        }
+      } else if (status.progress === 'completed') {
+        if (interpretationId) {
+          console.log('Interpretação concluída. Atualizando Snackbar e exibindo interpretação.');
+          updateSnackbar(interpretationId, 'Interpretação carregada com sucesso!', 'success', false);
+          if (status.interpretation) {
+            console.log('Definindo interpretação:', status.interpretation);
+            setInterpretation(status.interpretation);
+            setShowInterpretation(true);
+          } else {
+            console.warn('Interpretação concluída, mas interpretation é nulo');
+            updateSnackbar(interpretationId, 'Erro: Nenhuma interpretação disponível.', 'error', false);
+          }
+        }
+      } else if (status.error) {
+        if (interpretationId) {
+          console.log('Erro na interpretação:', status.error);
+          updateSnackbar(interpretationId, status.error, 'error', false);
+        }
+      }
+    };
+
+    ws.onerror = (error) => console.error('Erro no WebSocket de status de interpretação:', error);
+
+    ws.onclose = () => {
+      console.log('WebSocket de status de interpretação desconectado. Tentando reconectar...');
+      setTimeout(() => (statusWsRef.current = new WebSocket('ws://localhost:8000/ws/interpret/status')), 1000);
+    };
+
+    return () => {
+      console.log('Fechando WebSocket de status de interpretação');
+      ws.close();
+    };
+  }, [showSnackbar, updateSnackbar, interpretationId]);
 
   const limitsStyle = css`
     font-size: 0.6rem;
@@ -55,6 +135,14 @@ const MetricsDisplay: React.FC<MetricsDisplayProps> = ({ metrics }) => {
     border-radius: 3px;
   `;
 
+  const interpretationStyle = css`
+    background: ${theme.palette.background.paper};
+    padding: 10px;
+    border-radius: 5px;
+    margin-bottom: 10px;
+    border: 1px solid ${theme.palette.divider};
+  `;
+
   const getCategoryAndColor = (value: number, metric: MetricDefinition) => {
     if (value === undefined) return { category: 'N/A', color: theme.palette.text.primary };
 
@@ -84,8 +172,52 @@ const MetricsDisplay: React.FC<MetricsDisplayProps> = ({ metrics }) => {
     return { category, color };
   };
 
+  // Função para iniciar a interpretação
+  const fetchInterpretation = async () => {
+    try {
+      console.log('Iniciando requisição para interpretar métricas');
+      await axios.post('http://localhost:8000/interpret-metrics', metrics);
+      console.log('Requisição para interpretar métricas enviada com sucesso');
+      // O status será atualizado via WebSocket
+    } catch (err) {
+      console.error('Erro ao iniciar interpretação:', err);
+      if (interpretationId) {
+        updateSnackbar(interpretationId, 'Erro ao iniciar interpretação. Tente novamente mais tarde.', 'error', false);
+      }
+    }
+  };
+
   return (
     <Box>
+      {/* Interpretação */}
+      <Box css={css`margin-bottom: 20px;`}>
+        <Button
+          variant="outlined"
+          onClick={fetchInterpretation}
+          endIcon={<ExpandMoreIcon />}
+          disabled={interpretationStatus.running}
+          css={css`margin-bottom: 10px;`}
+        >
+          {showInterpretation ? 'Ocultar Interpretação' : 'Obter Interpretação'}
+        </Button>
+        <Collapse in={showInterpretation}>
+          <Box css={interpretationStyle}>
+            <Typography variant="body2" component="div">
+              {interpretation ? (
+                interpretation.split('\n').map((line, index) => (
+                  <React.Fragment key={index}>
+                    {line}
+                    <br />
+                  </React.Fragment>
+                ))
+              ) : (
+                'Nenhuma interpretação disponível.'
+              )}
+            </Typography>
+          </Box>
+        </Collapse>
+      </Box>
+
       {/* Métricas */}
       <Grid container spacing={2} css={css`margin-top: 2px;`}>
         {metricsConfig.map((metric: MetricDefinition) => {
