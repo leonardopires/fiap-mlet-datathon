@@ -40,7 +40,7 @@ class ModelManager:
         else:
             raise HTTPException(status_code=500, detail="Falha no treinamento: dados insuficientes")
 
-    def predict(self, state: StateManager, user_id: str, keywords: Optional[List[str]] = None) -> list[dict]:
+    def predict(self, state: StateManager, user_id: str, number_of_records=20, keywords: Optional[List[str]] = None) -> list[dict]:
         if state.PREDICTOR is None:
             logger.warning("Modelo não treinado")
             raise HTTPException(status_code=400, detail="Modelo não treinado")
@@ -56,7 +56,7 @@ class ModelManager:
                 "link": state.NOTICIAS[state.NOTICIAS['page'] == page]['url'].iloc[0],
             } for page in popular_news]
         else:
-            predictions = state.PREDICTOR.predict(user_id)
+            predictions = state.PREDICTOR.predict(user_id, number_of_records)
         elapsed = time.time() - start_time
         logger.info(f"Predições geradas para {user_id} em {elapsed:.2f} segundos")
         return predictions

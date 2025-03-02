@@ -20,7 +20,7 @@ def create_app(auto_init: bool = AUTO_INIT):
     Returns:
         FastAPI: O aplicativo configurado com todas as rotas.
     """
-    logger.debug(f"Configuração de inicialização: AUTO_INIT={AUTO_INIT}, auto_init={auto_init}")
+    logger.info(f"Configuração de inicialização: AUTO_INIT={AUTO_INIT}, auto_init={auto_init}")
 
     logger.info("Criando o aplicativo FastAPI a partir do módulo src.api.main")
     server = APIServer()

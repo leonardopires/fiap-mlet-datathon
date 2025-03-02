@@ -64,56 +64,56 @@ class Trainer:
         validacao['news_idx'] = news_encoder.transform(validacao[news_column])
 
         validacao = validacao[validacao['userId'].isin(user_profiles.keys())]
-        logger.debug(f"Filtradas {len(validacao)} linhas válidas após verificação de usuários")
+        logger.info(f"Filtradas {len(validacao)} linhas válidas após verificação de usuários")
 
-        logger.debug("Normalizando embeddings de notícias na CPU")
+        logger.info("Normalizando embeddings de notícias na CPU")
         news_embeddings_np = np.array(noticias['embedding'].tolist())
         news_embeddings_np = news_embeddings_np / np.linalg.norm(news_embeddings_np, axis=1, keepdims=True)
         news_embeddings = torch.tensor(news_embeddings_np, dtype=torch.float32)  # Mantém na CPU
         news_page_to_idx = {page: idx for idx, page in enumerate(noticias['page'])}
         elapsed = time.time() - start_time
-        logger.debug(f"Embeddings de notícias carregados: {news_embeddings.shape}. Elapsed: {elapsed:.2f} s")
+        logger.info(f"Embeddings de notícias carregados: {news_embeddings.shape}. Elapsed: {elapsed:.2f} s")
 
-        logger.debug("Normalizando embeddings de usuários na CPU")
+        logger.info("Normalizando embeddings de usuários na CPU")
         user_ids = list(user_profiles.keys())
         user_embeddings_np = np.array(list(user_profiles.values()))
         user_embeddings_np = user_embeddings_np / np.linalg.norm(user_embeddings_np, axis=1, keepdims=True)
         user_embeddings = torch.tensor(user_embeddings_np, dtype=torch.float32)  # Mantém na CPU
         user_id_to_idx = {uid: idx for idx, uid in enumerate(user_ids)}
         elapsed = time.time() - start_time
-        logger.debug(f"Embeddings de usuários carregados: {user_embeddings.shape}. Elapsed: {elapsed:.2f} s")
+        logger.info(f"Embeddings de usuários carregados: {user_embeddings.shape}. Elapsed: {elapsed:.2f} s")
 
-        logger.debug("Preparando índices de usuários e notícias com operações vetoriais")
+        logger.info("Preparando índices de usuários e notícias com operações vetoriais")
         X_user_indices = torch.tensor(validacao['userId'].map(user_id_to_idx).values, dtype=torch.long)
         X_news_indices = torch.tensor(validacao[news_column].map(news_page_to_idx).values, dtype=torch.long)
         elapsed = time.time() - start_time
-        logger.debug(f"Índices preparados: X_user={X_user_indices.shape}, X_news={X_news_indices.shape}. Elapsed: {elapsed:.2f} s")
+        logger.info(f"Índices preparados: X_user={X_user_indices.shape}, X_news={X_news_indices.shape}. Elapsed: {elapsed:.2f} s")
 
         X_user = user_embeddings[X_user_indices]
         X_news = news_embeddings[X_news_indices]
-        logger.debug(f"Tensores de usuários e notícias: X_user={X_user.shape}, X_news={X_news.shape}")
+        logger.info(f"Tensores de usuários e notícias: X_user={X_user.shape}, X_news={X_news.shape}")
 
-        logger.debug("Pré-carregando tensor de relevância na CPU")
+        logger.info("Pré-carregando tensor de relevância na CPU")
         y = torch.tensor(validacao['relevance'].values, dtype=torch.float32).unsqueeze(1)
         elapsed = time.time() - start_time
-        logger.debug(f"Tensor de relevância preparado: {y.shape}. Elapsed: {elapsed:.2f} s")
+        logger.info(f"Tensor de relevância preparado: {y.shape}. Elapsed: {elapsed:.2f} s")
 
-        logger.debug("Criando TensorDataset")
+        logger.info("Criando TensorDataset")
         dataset = TensorDataset(X_user, X_news, y)
         elapsed = time.time() - start_time
-        logger.debug(f"Dataset criado. Elapsed: {elapsed:.2f} s")
+        logger.info(f"Dataset criado. Elapsed: {elapsed:.2f} s")
 
-        logger.debug("Preparando dados de validação uma única vez")
+        logger.info("Preparando dados de validação uma única vez")
         val_X_user_indices = torch.tensor(val_df['userId'].map(user_id_to_idx).values, dtype=torch.long)
         val_X_news_indices = torch.tensor(val_df[news_column].map(news_page_to_idx).values, dtype=torch.long)
         val_X_user = user_embeddings[val_X_user_indices]
         val_X_news = news_embeddings[val_X_news_indices]
         val_y = torch.tensor(val_df['relevance'].values, dtype=torch.float32).unsqueeze(1)
         elapsed = time.time() - start_time
-        logger.debug(f"Dados de validação preparados: {val_X_user.shape}. Elapsed: {elapsed:.2f} s")
+        logger.info(f"Dados de validação preparados: {val_X_user.shape}. Elapsed: {elapsed:.2f} s")
 
         batch_size = 512
-        logger.debug(f"Inicializando DataLoader com batch_size={batch_size}")
+        logger.info(f"Inicializando DataLoader com batch_size={batch_size}")
         dataloader = DataLoader(
             dataset,
             batch_size=batch_size,

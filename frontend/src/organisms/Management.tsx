@@ -1,6 +1,6 @@
 /** @jsxImportSource @emotion/react */
-import React, {useState, useEffect} from 'react';
-import {css} from '@emotion/react';
+import React, { useState, useEffect } from 'react';
+import { css } from '@emotion/react';
 import {
   FormControlLabel,
   Checkbox,
@@ -17,8 +17,10 @@ import Button from '../atoms/Button';
 import FormField from '../molecules/FormField';
 import DescriptionIcon from '@mui/icons-material/Description';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import {useSnackbar} from '../contexts/SnackbarContext';
+import { useSnackbar } from '../contexts/SnackbarContext';
 import Alert from "../atoms/Alert";
+import { mapStatus } from "../utils/status_mapping";
+import MetricsDisplay from '../organisms/MetricsDisplay';
 
 interface Status {
   running: boolean;
@@ -34,13 +36,13 @@ interface ManagementProps {
 }
 
 const Management: React.FC<ManagementProps> = ({
-                                                 trainingStatus,
-                                                 metricsStatus,
-                                                 setTrainingStatus,
-                                                 setMetricsStatus,
-                                               }) => {
+  trainingStatus,
+  metricsStatus,
+  setTrainingStatus,
+  setMetricsStatus,
+}) => {
   const theme = useTheme();
-  const {showSnackbar} = useSnackbar();
+  const { showSnackbar } = useSnackbar();
   const [subsampleFrac, setSubsampleFrac] = useState<string>('');
   const [forceRecalc, setForceRecalc] = useState<boolean>(false);
   const [metrics, setMetrics] = useState<any>(null);
@@ -48,18 +50,27 @@ const Management: React.FC<ManagementProps> = ({
   const [isModelTrained, setIsModelTrained] = useState<boolean>(false);
 
   useEffect(() => {
-    // Verifica se o modelo já está treinado ao carregar o componente
-    const checkModelStatus = async () => {
+    // Verifica se o modelo já está treinado e busca métricas existentes ao carregar o componente
+    const initialize = async () => {
       try {
-        const response = await axios.get('http://localhost:8000/train/status');
-        if (response.data.progress === 'completed') {
+        // Verificar status do modelo
+        const trainResponse = await axios.get(`http://${window.location.hostname}:8000/train/status`);
+        if (trainResponse.data.progress === 'completed') {
           setIsModelTrained(true);
         }
+
+        // Buscar métricas existentes, sem iniciar cálculo
+        const metricsResponse = await axios.get(`http://${window.location.hostname}:8000/metrics`, {
+          params: { force_recalc: false, fetch_only_existing: true }
+        });
+        if (metricsResponse.data.metrics) {
+          setMetrics(metricsResponse.data.metrics);
+        }
       } catch (error) {
-        console.error('Erro ao verificar status do modelo:', error);
+        console.error('Erro ao inicializar:', error);
       }
     };
-    checkModelStatus();
+    initialize();
   }, []);
 
   const startTraining = async () => {
@@ -74,7 +85,7 @@ const Management: React.FC<ManagementProps> = ({
         }
       }
       payload.force_retrain = forceRetrain;
-      await axios.post('http://localhost:8000/train', payload);
+      await axios.post(`http://${window.location.hostname}:8000/train`, payload);
       if (isModelTrained && !forceRetrain) {
         showSnackbar('Modelo já treinado; dados existentes foram utilizados.', 'info');
       } else {
@@ -88,61 +99,57 @@ const Management: React.FC<ManagementProps> = ({
 
   const fetchMetrics = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/metrics', {params: {force_recalc: forceRecalc}});
+      const response = await axios.get(`http://${window.location.hostname}:8000/metrics`, { params: { force_recalc: forceRecalc } });
       setMetrics(response.data.metrics || null);
       showSnackbar('Métricas carregadas com sucesso!', 'success');
     } catch (error) {
       console.error('Erro ao obter métricas:', error);
-      setMetrics({error: 'Erro ao carregar métricas do servidor.'});
+      setMetrics({ error: 'Erro ao carregar métricas do servidor.' });
       showSnackbar('Erro ao carregar métricas.', 'error');
     }
   };
 
   const containerStyle = css`
-      padding: 20px;
+    padding: 20px;
   `;
 
   const preStyle = css`
-      background: ${theme.palette.background.paper};
-      padding: 10px;
-      border-radius: 5px;
-      color: ${theme.palette.text.primary};
+    background: ${theme.palette.background.paper};
+    padding: 10px;
+    border-radius: 5px;
+    color: ${theme.palette.text.primary};
   `;
 
   const checkboxStyle = css`
+    color: ${theme.palette.text.primary};
+    .MuiCheckbox-root {
       color: ${theme.palette.text.primary};
-
-      .MuiCheckbox-root {
-          color: ${theme.palette.text.primary};
-      }
+    }
   `;
 
-  // Notificações de status em tempo real (apenas quando mudam)
   React.useEffect(() => {
     if (trainingStatus.running) {
-      showSnackbar(`Treinamento em andamento: ${trainingStatus.progress}`, 'info');
+      showSnackbar(`Treinamento em andamento: ${mapStatus(trainingStatus.progress)}`, 'info');
     }
     if (trainingStatus.error) {
-      showSnackbar(`Erro no treinamento: ${trainingStatus.error}`, 'error');
+      showSnackbar(`Erro no treinamento: ${mapStatus(trainingStatus.error)}`, 'error');
     }
     if (metricsStatus.running) {
-      showSnackbar(`Cálculo de métricas em andamento: ${metricsStatus.progress}`, 'info');
+      showSnackbar(`Cálculo de métricas em andamento: ${mapStatus(metricsStatus.progress)}`, 'info');
     }
     if (metricsStatus.error) {
-      showSnackbar(`Erro ao calcular métricas: ${metricsStatus.error}`, 'error');
+      showSnackbar(`Erro ao calcular métricas: ${mapStatus(metricsStatus.error)}`, 'error');
     }
   }, [trainingStatus, metricsStatus, showSnackbar]);
 
   return (
     <div css={containerStyle}>
-      <h1 css={css`color: ${theme.palette.text.primary};
-          font-size: 2.8rem;
-          margin-bottom: 20px;`}>Gerenciamento</h1>
+      <h1 css={css`color: ${theme.palette.text.primary}; font-size: 2.8rem; margin-bottom: 20px;`}>Gerenciamento</h1>
       <div>
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
             <Card>
-              <CardHeader title="Treinamento do Modelo"/>
+              <CardHeader title="Treinamento do Modelo" />
               <CardContent>
                 {isModelTrained && !forceRetrain && (
                   <Alert variant="info" css={css`margin-bottom: 15px;`}>
@@ -159,18 +166,17 @@ const Management: React.FC<ManagementProps> = ({
                     placeholder="Ex.: 0.1 para 10% dos dados"
                   />
                   <FormControlLabel
-                    control={<Checkbox checked={forceRetrain} onChange={(e) => setForceRetrain(e.target.checked)}/>}
+                    control={<Checkbox checked={forceRetrain} onChange={(e) => setForceRetrain(e.target.checked)} />}
                     label={
                       <span css={checkboxStyle}>
-                        <DescriptionIcon css={css`margin-right: 8px;
-                            vertical-align: middle;`}/> Forçar Novo Treinamento
+                        <DescriptionIcon css={css`margin-right: 8px; vertical-align: middle;`} /> Forçar Novo Treinamento
                       </span>
                     }
                   />
                   <Button
                     variant="primary"
                     onClick={startTraining}
-                    icon={<PlayArrowIcon/>}
+                    icon={<PlayArrowIcon />}
                     disabled={trainingStatus.running}
                   >
                     {trainingStatus.running ? 'Treinando...' : 'Iniciar Treinamento'}
@@ -181,61 +187,54 @@ const Management: React.FC<ManagementProps> = ({
           </Grid>
           <Grid item xs={12} md={6}>
             <Card>
-              <CardHeader title="Métricas de Qualidade"/>
+              <CardHeader title="Métricas de Qualidade" />
               <CardContent>
+                {/* Exibir métricas primeiro, se existirem */}
+                {metrics && (
+                  <div css={css`margin-bottom: 50px;`}>
+                    {metrics.error ? (
+                      <Typography css={css`color: ${theme.palette.error.main};`}>{metrics.error}</Typography>
+                    ) : (
+                      <MetricsDisplay metrics={metrics} />
+                    )}
+                  </div>
+                )}
+                {/* Controles para obter métricas */}
                 <FormGroup css={css`margin-bottom: 15px;`}>
                   <FormControlLabel
-                    control={<Checkbox checked={forceRecalc} onChange={(e) => setForceRecalc(e.target.checked)}/>}
+                    control={<Checkbox checked={forceRecalc} onChange={(e) => setForceRecalc(e.target.checked)} />}
                     label={
                       <Typography css={checkboxStyle}>
-                        <DescriptionIcon css={css`margin-right: 8px;
-                            vertical-align: middle;`}/> Forçar Recálculo de Métricas
+                        <DescriptionIcon css={css`margin-right: 8px; vertical-align: middle;`} /> Forçar Recálculo de Métricas
                       </Typography>
                     }
                   />
                   <Button
                     variant="info"
                     onClick={fetchMetrics}
-                    icon={<PlayArrowIcon/>}
+                    icon={<PlayArrowIcon />}
                     disabled={metricsStatus.running}
                     css={css`margin-left: 10px;`}
                   >
                     {metricsStatus.running ? 'Calculando...' : 'Obter Métricas'}
                   </Button>
                 </FormGroup>
-                {metrics && (
-                  <div css={css`margin-top: 20px;`}>
-                    <h3 css={css`color: ${theme.palette.text.primary};
-                        font-size: 1.8rem;`}>Métricas de Qualidade</h3>
-                    {metrics.error ? (
-                      <Typography css={css`color: ${theme.palette.error.main};`}>{metrics.error}</Typography>
-                    ) : (
-                      <pre css={preStyle}>
-                        Precisão@10: {metrics.precision_at_k?.toFixed(4)}<br/>
-                        Recall@10: {metrics.recall_at_k?.toFixed(4)}<br/>
-                        MRR: {metrics.mrr?.toFixed(4)}<br/>
-                        ILS: {metrics.intra_list_similarity?.toFixed(4)}<br/>
-                        Cobertura: {(metrics.catalog_coverage * 100)?.toFixed(2)}%
-                      </pre>
-                    )}
-                  </div>
-                )}
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12}>
             <Card>
-              <CardHeader title="Documentação da API"/>
+              <CardHeader title="Documentação da API" />
               <CardContent>
                 <iframe
-                  src="http://localhost:8000/docs"
+                  src={`http://${window.location.hostname}:8000/docs`}
                   title="Swagger UI"
                   css={css`
-                      width: 100%;
-                      height: 600px;
-                      border: none;
-                      border-radius: 5px;
-                      background: #ffffff;
+                    width: 100%;
+                    height: 600px;
+                    border: none;
+                    border-radius: 5px;
+                    background: #ffffff;
                   `}
                 />
               </CardContent>

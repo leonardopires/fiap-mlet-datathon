@@ -14,7 +14,7 @@ class Predictor:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
-    def predict(self, user_id: str) -> list[dict]:
+    def predict(self, user_id: str, number_of_records=10) -> list[dict]:
         logger.info(f"Gerando predições para usuário {user_id}")
         user_emb = torch.tensor(self.user_profiles[user_id], dtype=torch.float32).to(self.device)
 
@@ -22,9 +22,8 @@ class Predictor:
         with torch.no_grad():
             self.model.eval()
             scores = self.model(user_emb.expand_as(news_embs), news_embs).squeeze()
-            scores = scores + torch.rand(scores.shape, device=self.device) * 0.1  # Ruído
 
-        top_indices = torch.topk(scores, 10).indices.cpu().numpy()
+        top_indices = torch.topk(scores, number_of_records).indices.cpu().numpy()
         top_news = self.noticias.iloc[top_indices]
         predictions = [
             {
