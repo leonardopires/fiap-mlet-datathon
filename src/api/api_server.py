@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import shutil
 import sys
 import uvicorn
 from fastapi import FastAPI, HTTPException, WebSocket, BackgroundTasks, WebSocketException
@@ -8,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import time
 from logging.handlers import RotatingFileHandler
 import os
+import anyio  # Importar anyio para executar funções síncronas em threads separadas
 
 from starlette.websockets import WebSocketState, WebSocketDisconnect
 
@@ -15,6 +17,7 @@ from src.data_loader import DataLoader
 from src.predictor import Predictor
 from src.preprocessor import Preprocessor
 from src.trainer import Trainer
+from src.db_initializer import DBInitializer
 from .state_manager import StateManager
 from .data_initializer import DataInitializer
 from .metrics_calculator import MetricsCalculator
@@ -32,7 +35,7 @@ if os.path.exists(log_path):
     log_handler.doRollover()
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='recomendador-g1 | %(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         log_handler,
@@ -71,8 +74,28 @@ class APIServer:
         self.metrics_calculator = MetricsCalculator(self.state)
         self.training_status = {"running": False, "progress": "idle", "error": None}
         self.metrics_status = {"running": False, "progress": "idle", "error": None}
-        self.prediction_status = {"running": False, "progress": "idle", "error": None}  # Novo estado para predição
+        self.prediction_status = {"running": False, "progress": "idle", "error": None}
+        # Inicializa o banco de dados
+        self.db_initializer = DBInitializer(
+            host=os.getenv("POSTGRES_HOST", "postgres"),
+            port=int(os.getenv("POSTGRES_PORT", 5432)),
+            dbname=os.getenv("POSTGRES_DB", "recomendador_db"),
+            user=os.getenv("POSTGRES_USER", "recomendador"),
+            password=os.getenv("POSTGRES_PASSWORD", "senha123")
+        )
+        self._initialize_db()
         self.setup_routes()
+
+    def _initialize_db(self):
+        """Inicializa o banco de dados e cria a tabela predictions_cache."""
+        try:
+            self.db_initializer.connect()
+            self.db_initializer.initialize_db()
+        except Exception as e:
+            logger.error(f"Falha ao inicializar o banco de dados: {e}")
+            raise
+        finally:
+            self.db_initializer.close()
 
     async def _handle_websocket(self, websocket: WebSocket, callback: callable, callback_name: str):
         """Gerencia conexão WebSocket, executa a callback e trata erros de forma genérica."""
@@ -121,14 +144,24 @@ class APIServer:
             subsample_frac = request.subsample_frac if request else None
             force_reprocess = request.force_reprocess if request else False
             force_retrain = request.force_retrain if request else False
-
             cache_dir = 'data/cache'
+
+            if force_reprocess or force_retrain:
+                logger.info("Forçando reprocessamento ou retrainamento; resetando estado")
+                self.state.reset()
+                # deleta recursivamente a pasta cache e a recria
+                if os.path.exists(cache_dir):
+                    shutil.rmtree(cache_dir)
+
+            # Cria a pasta cache se não existir
+            os.makedirs(cache_dir, exist_ok=True)
+
             interacoes_file = os.path.join(cache_dir, 'interacoes.h5')
             noticias_file = os.path.join(cache_dir, 'noticias.h5')
             user_profiles_file = os.path.join(cache_dir, 'user_profiles_final.h5')
             data_files_exist = all(os.path.exists(f) for f in [interacoes_file, noticias_file, user_profiles_file])
 
-            if force_reprocess or not data_files_exist:
+            if not data_files_exist:
                 self.training_status["progress"] = "preprocessing"
                 logger.info("Pré-processamento necessário; iniciando initialize_data")
                 self.data_initializer.initialize_data(self.state, subsample_frac, force_reprocess)
@@ -245,7 +278,16 @@ class APIServer:
 
             start_time = time.time()
             logger.info(f"Requisição de predição para {request.user_id}")
-            predictions = self.model_manager.predict(self.state, request.user_id, number_of_records=20, keywords=request.keywords)
+
+            # Executa a predição em uma thread separada para não bloquear o loop de eventos
+            predictions = await anyio.to_thread.run_sync(
+                self.model_manager.predict,
+                self.state,
+                request.user_id,
+                20,  # number_of_records
+                request.keywords
+            )
+
             elapsed = time.time() - start_time
             logger.info(f"Predição concluída em {elapsed:.2f} segundos")
             return {"user_id": request.user_id, "acessos_futuros": predictions}
@@ -289,7 +331,7 @@ class APIServer:
                 fetch_only_existing: bool = False,
                 background_tasks: BackgroundTasks = None
         ):
-            logger.info("Requisição para obter métricas recebida")
+            logger.debug("Requisição para obter métricas recebida")
             if hasattr(self.state, 'metrics') and not force_recalc:
                 return {"metrics": self.state.metrics}
             if fetch_only_existing:
@@ -304,15 +346,12 @@ class APIServer:
         @self.app.websocket("/ws/status")
         async def websocket_status(websocket: WebSocket):
             async def status_callback(ws):
-                old_training_status = self.training_status
-                old_metrics_status = self.training_status
                 while True:
-                    if self.training_status != old_training_status or self.metrics_status != old_metrics_status:
-                        status = {
-                            "training": self.training_status,
-                            "metrics": self.metrics_status
-                        }
-                        await ws.send_json(status)
+                    status = {
+                        "training": self.training_status,
+                        "metrics": self.metrics_status
+                    }
+                    await ws.send_json(status)
                     await asyncio.sleep(1)
 
             await self._handle_websocket(websocket, status_callback, "status")
@@ -320,11 +359,9 @@ class APIServer:
         @self.app.websocket("/ws/predict/status")
         async def websocket_predict_status(websocket: WebSocket):
             async def predict_status_callback(ws):
-                old_predict_status = self.prediction_status
                 while True:
-                    if self.prediction_status != old_predict_status:
-                        status = self.prediction_status
-                        await ws.send_json(status)
+                    status = self.prediction_status
+                    await ws.send_json(status)
                     await asyncio.sleep(1)
 
             await self._handle_websocket(websocket, predict_status_callback, "predict/status")

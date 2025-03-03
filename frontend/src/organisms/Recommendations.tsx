@@ -70,7 +70,8 @@ const Recommendations: React.FC = () => {
       }
       const response = await axios.post(`http://${window.location.hostname}:8000/predict_foreground`, payload);
       const urlSet = new Set();
-      let acessosFuturos = (response.data.acessos_futuros || []).filter((rec: Recommendation) => {
+      let acessosFuturos = (response.data.acessos_futuros || []);
+      acessosFuturos = acessosFuturos.filter((rec: Recommendation) => {
         const exists = urlSet.has(rec.link);
         urlSet.add(rec.link);
         return !exists && extractDate(rec);

@@ -41,9 +41,9 @@ export const darkTheme = createTheme({
   },
   typography: {
     fontFamily: "'Poppins', sans-serif",
-    h1: { fontSize: '2.8rem', fontWeight: 600 },
-    h3: { fontSize: '1.8rem', fontWeight: 600 },
-    h5: { fontSize: '1.5rem', fontWeight: 600 },
+    h1: { fontSize: '1.5rem', fontWeight: 600 },
+    h3: { fontSize: '1.4rem', fontWeight: 600 },
+    h5: { fontSize: '1.3rem', fontWeight: 600 },
     body1: { fontSize: '1rem' },
     body2: { fontSize: '0.9rem' },
   },

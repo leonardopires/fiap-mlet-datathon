@@ -9,29 +9,51 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 import time
 import os
+from sentence_transformers import SentenceTransformer  # Importar para gerar embeddings das palavras-chave
+from src.preprocessor.resource_logger import ResourceLogger  # Importar ResourceLogger
 
 logger = logging.getLogger(__name__)
 
 torch.backends.cudnn.benchmark = True
 os.makedirs('data/cache', exist_ok=True)
 
+
 class RecommendationModel(nn.Module):
-    def __init__(self, user_embedding_dim, news_embedding_dim, hidden_dim=128):
+    def __init__(self, user_embedding_dim, news_embedding_dim, hidden_dim1=256, hidden_dim2=128):
         super(RecommendationModel, self).__init__()
-        self.news_layer = nn.Linear(news_embedding_dim, hidden_dim)
-        self.user_layer = nn.Linear(user_embedding_dim, hidden_dim)
+        # Camadas para embeddings de usuário
+        self.user_layer1 = nn.Linear(user_embedding_dim, hidden_dim1)
+        self.user_layer2 = nn.Linear(hidden_dim1, hidden_dim2)
+        # Camadas para embeddings de notícia
+        self.news_layer1 = nn.Linear(news_embedding_dim, hidden_dim1)
+        self.news_layer2 = nn.Linear(hidden_dim1, hidden_dim2)
         self.relu = nn.ReLU()
-        self.output_layer = nn.Linear(hidden_dim * 2, 1)
+        # Camada de saída
+        self.output_layer = nn.Linear(hidden_dim2 * 2, 1)
 
     def forward(self, user_emb, news_emb):
-        user_out = self.user_layer(user_emb)
-        news_out = self.news_layer(news_emb)
+        # Processar embeddings de usuário
+        user_out = self.user_layer1(user_emb)
+        user_out = self.relu(user_out)
+        user_out = self.user_layer2(user_out)
+        user_out = self.relu(user_out)
+        # Processar embeddings de notícia
+        news_out = self.news_layer1(news_emb)
+        news_out = self.relu(news_out)
+        news_out = self.news_layer2(news_out)
+        news_out = self.relu(news_out)
+        # Concatenar e gerar saída
         combined = torch.cat((user_out, news_out), dim=1)
-        output = self.output_layer(self.relu(combined))
+        output = self.output_layer(combined)
         return output
 
+
 class Trainer:
-    def train(self, interacoes, noticias, user_profiles, validation_file):
+    def __init__(self):
+        # Inicializa o ResourceLogger para monitoramento de recursos
+        self.resource_logger = ResourceLogger()
+
+    def train(self, interacoes, noticias, user_profiles, validation_file, subsample_frac=1.0):
         logger.info("Iniciando ajuste do modelo na GPU")
         start_time = time.time()
 
@@ -43,6 +65,9 @@ class Trainer:
 
         logger.info(f"Carregando dados de validação de {validation_file}")
         validacao = pd.read_csv(validation_file)
+        if subsample_frac < 1.0:
+            validacao = validacao.sample(frac=subsample_frac, random_state=42)
+            logger.info(f"Subamostragem aplicada a validacao: {len(validacao)} registros restantes")
         elapsed = time.time() - start_time
         logger.info(f"Dados de validação carregados: {len(validacao)} registros em {elapsed:.2f} segundos")
 
@@ -56,45 +81,84 @@ class Trainer:
 
         news_column = 'history'
         if news_column not in validacao.columns:
-            logger.error(f"Coluna '{news_column}' não encontrada em validacao. Colunas disponíveis: {validacao.columns}")
+            logger.error(
+                f"Coluna '{news_column}' não encontrada em validacao. Colunas disponíveis: {validacao.columns}")
             raise KeyError(f"Coluna '{news_column}' não encontrada em {validation_file}")
 
+        # Log antes de processar validacao_history
+        logger.info("Criando conjunto único de notícias a partir de validacao['history']")
+        validacao_history = validacao[news_column].str.split(', ').explode().unique()
+        all_pages = np.unique(np.concatenate((noticias['page'].values, validacao_history)))
+
+        # Treinar o LabelEncoder com todos os identificadores possíveis
+        logger.info("Treinando LabelEncoder")
         news_encoder = LabelEncoder()
-        news_encoder.fit(noticias['page'])
-        validacao['news_idx'] = news_encoder.transform(validacao[news_column])
+        news_encoder.fit(all_pages)
 
+        # Criar um mapeamento apenas para as notícias presentes em noticias['page']
+        logger.info("Criando mapeamento de índices para notícias em noticias['page']")
+        news_page_to_encoded_idx = {page: idx for idx, page in enumerate(noticias['page'].values)}
+
+        # Transformar os identificadores em validacao['history']
+        logger.info("Transformando identificadores em validacao['history']")
+        noticias_set = set(noticias['page'].values)
+        valid_pages = validacao[news_column].str.split(', ', expand=True).stack().reset_index(level=1, drop=True)
+        valid_pages = valid_pages[valid_pages.isin(noticias_set)].groupby(level=0).first()
+        validacao = validacao.loc[valid_pages.index]
+        # Remapear os índices para corresponder ao intervalo de news_embeddings
+        validacao['news_idx'] = valid_pages.map(news_page_to_encoded_idx)
+        # Verificar se todos os índices são válidos
+        validacao = validacao.dropna(subset=['news_idx'])  # Remove linhas com índices ausentes
+        validacao['news_idx'] = validacao['news_idx'].astype(int)
+        max_news_idx = len(noticias['page']) - 1
+        valid_indices = (validacao['news_idx'] >= 0) & (validacao['news_idx'] <= max_news_idx)
+        validacao = validacao[valid_indices]
+        logger.info(f"Filtradas {len(validacao)} linhas válidas após verificação de notícias disponíveis")
+
+        logger.info("Filtrando usuários presentes em user_profiles")
         validacao = validacao[validacao['userId'].isin(user_profiles.keys())]
-        logger.info(f"Filtradas {len(validacao)} linhas válidas após verificação de usuários")
+        elapsed = time.time() - start_time
+        logger.info(f"Filtradas {len(validacao)} linhas válidas após verificação de usuários em {elapsed:.2f} segundos")
 
-        logger.info("Normalizando embeddings de notícias na CPU")
-        news_embeddings_np = np.array(noticias['embedding'].tolist())
-        news_embeddings_np = news_embeddings_np / np.linalg.norm(news_embeddings_np, axis=1, keepdims=True)
-        news_embeddings = torch.tensor(news_embeddings_np, dtype=torch.float32)  # Mantém na CPU
+        logger.info("Normalizando embeddings de notícias na GPU")
+        news_embeddings = torch.tensor(noticias['embedding'].tolist(), dtype=torch.float32).to(device)
+        news_embeddings = news_embeddings / torch.norm(news_embeddings, dim=1, keepdim=True)
         news_page_to_idx = {page: idx for idx, page in enumerate(noticias['page'])}
         elapsed = time.time() - start_time
         logger.info(f"Embeddings de notícias carregados: {news_embeddings.shape}. Elapsed: {elapsed:.2f} s")
 
-        logger.info("Normalizando embeddings de usuários na CPU")
+        logger.info("Normalizando embeddings de usuários na GPU")
         user_ids = list(user_profiles.keys())
-        user_embeddings_np = np.array(list(user_profiles.values()))
-        user_embeddings_np = user_embeddings_np / np.linalg.norm(user_embeddings_np, axis=1, keepdims=True)
-        user_embeddings = torch.tensor(user_embeddings_np, dtype=torch.float32)  # Mantém na CPU
+        user_embeddings = torch.tensor(np.array(list(user_profiles.values())), dtype=torch.float32).to(device)
+        user_embeddings = user_embeddings / torch.norm(user_embeddings, dim=1, keepdim=True)
         user_id_to_idx = {uid: idx for idx, uid in enumerate(user_ids)}
         elapsed = time.time() - start_time
         logger.info(f"Embeddings de usuários carregados: {user_embeddings.shape}. Elapsed: {elapsed:.2f} s")
 
-        logger.info("Preparando índices de usuários e notícias com operações vetoriais")
-        X_user_indices = torch.tensor(validacao['userId'].map(user_id_to_idx).values, dtype=torch.long)
-        X_news_indices = torch.tensor(validacao[news_column].map(news_page_to_idx).values, dtype=torch.long)
+        logger.info("Preparando índices de usuários e notícias na GPU")
+        X_user_indices = torch.tensor(validacao['userId'].map(user_id_to_idx).values, dtype=torch.long).to(device)
+        X_news_indices = torch.tensor(validacao['news_idx'].values, dtype=torch.long).to(device)
+        # Verificar limites dos índices
+        logger.info(
+            f"Verificando limites dos índices: X_user_indices max={X_user_indices.max().item()}, min={X_user_indices.min().item()}")
+        logger.info(
+            f"Verificando limites dos índices: X_news_indices max={X_news_indices.max().item()}, min={X_news_indices.min().item()}")
+        if X_user_indices.max().item() >= len(user_embeddings):
+            raise ValueError(
+                f"Índice de usuário fora dos limites: max={X_user_indices.max().item()}, esperado < {len(user_embeddings)}")
+        if X_news_indices.max().item() >= len(news_embeddings):
+            raise ValueError(
+                f"Índice de notícia fora dos limites: max={X_news_indices.max().item()}, esperado < {len(news_embeddings)}")
         elapsed = time.time() - start_time
-        logger.info(f"Índices preparados: X_user={X_user_indices.shape}, X_news={X_news_indices.shape}. Elapsed: {elapsed:.2f} s")
+        logger.info(
+            f"Índices preparados: X_user={X_user_indices.shape}, X_news={X_news_indices.shape}. Elapsed: {elapsed:.2f} s")
 
         X_user = user_embeddings[X_user_indices]
         X_news = news_embeddings[X_news_indices]
         logger.info(f"Tensores de usuários e notícias: X_user={X_user.shape}, X_news={X_news.shape}")
 
-        logger.info("Pré-carregando tensor de relevância na CPU")
-        y = torch.tensor(validacao['relevance'].values, dtype=torch.float32).unsqueeze(1)
+        logger.info("Pré-carregando tensor de relevância na GPU")
+        y = torch.tensor(validacao['relevance'].values, dtype=torch.float32).unsqueeze(1).to(device)
         elapsed = time.time() - start_time
         logger.info(f"Tensor de relevância preparado: {y.shape}. Elapsed: {elapsed:.2f} s")
 
@@ -104,11 +168,35 @@ class Trainer:
         logger.info(f"Dataset criado. Elapsed: {elapsed:.2f} s")
 
         logger.info("Preparando dados de validação uma única vez")
-        val_X_user_indices = torch.tensor(val_df['userId'].map(user_id_to_idx).values, dtype=torch.long)
-        val_X_news_indices = torch.tensor(val_df[news_column].map(news_page_to_idx).values, dtype=torch.long)
+        # Aplicar a mesma filtragem para val_df
+        val_pages = val_df[news_column].str.split(', ', expand=True).stack().reset_index(level=1, drop=True)
+        val_pages = val_pages[val_pages.isin(noticias_set)].groupby(level=0).first()
+        val_df = val_df.loc[val_pages.index]
+        val_df['news_idx'] = val_pages.map(news_page_to_encoded_idx)
+        val_df = val_df.dropna(subset=['news_idx'])
+        val_df['news_idx'] = val_df['news_idx'].astype(int)
+        val_valid_indices = (val_df['news_idx'] >= 0) & (val_df['news_idx'] <= max_news_idx)
+        val_df = val_df[val_valid_indices]
+        val_df = val_df[val_df['userId'].isin(user_profiles.keys())]
+        logger.info(f"Filtradas {len(val_df)} linhas válidas em val_df após verificação")
+
+        val_X_user_indices = torch.tensor(val_df['userId'].map(user_id_to_idx).values, dtype=torch.long).to(device)
+        val_X_news_indices = torch.tensor(val_df['news_idx'].values, dtype=torch.long).to(device)
+        # Verificar limites dos índices de validação
+        logger.info(
+            f"Verificando limites dos índices de validação: val_X_user_indices max={val_X_user_indices.max().item()}, min={val_X_user_indices.min().item()}")
+        logger.info(
+            f"Verificando limites dos índices de validação: val_X_news_indices max={val_X_news_indices.max().item()}, min={val_X_news_indices.min().item()}")
+        if val_X_user_indices.max().item() >= len(user_embeddings):
+            raise ValueError(
+                f"Índice de usuário de validação fora dos limites: max={val_X_user_indices.max().item()}, esperado < {len(user_embeddings)}")
+        if val_X_news_indices.max().item() >= len(news_embeddings):
+            raise ValueError(
+                f"Índice de notícia de validação fora dos limites: max={val_X_news_indices.max().item()}, esperado < {len(news_embeddings)}")
+
         val_X_user = user_embeddings[val_X_user_indices]
         val_X_news = news_embeddings[val_X_news_indices]
-        val_y = torch.tensor(val_df['relevance'].values, dtype=torch.float32).unsqueeze(1)
+        val_y = torch.tensor(val_df['relevance'].values, dtype=torch.float32).unsqueeze(1).to(device)
         elapsed = time.time() - start_time
         logger.info(f"Dados de validação preparados: {val_X_user.shape}. Elapsed: {elapsed:.2f} s")
 
@@ -119,7 +207,7 @@ class Trainer:
             batch_size=batch_size,
             shuffle=True,
             num_workers=0 if device.type == "cuda" else min(8, os.cpu_count() or 1),
-            pin_memory=True
+            pin_memory=False
         )
         elapsed = time.time() - start_time
         logger.info(f"Dados preparados em {elapsed:.2f} segundos")
@@ -159,6 +247,11 @@ class Trainer:
                     scaler.update()
                     total_loss += loss.item() * len(batch_X_user)
                     num_samples += len(batch_X_user)
+
+                    # Log do uso da GPU a cada batch usando ResourceLogger
+                    if batch_idx % 10 == 0:  # Log a cada 10 batches para evitar sobrecarga
+                        self.resource_logger.log_gpu_usage()
+
                 avg_loss = total_loss / num_samples
                 logger.info(f"Epoch {epoch + 1}/{num_epochs}, Perda Treino: {avg_loss:.4f}")
 
@@ -169,7 +262,11 @@ class Trainer:
                     val_y = val_y.to(device)
                     val_outputs = model(val_X_user, val_X_news)
                     val_loss = criterion(val_outputs, val_y)
-                logger.info(f"Época {epoch + 1}/{num_epochs}, Perda Treino: {avg_loss:.4f}, Perda Validação: {val_loss.item():.4f}")
+                logger.info(
+                    f"Época {epoch + 1}/{num_epochs}, Perda Treino: {avg_loss:.4f}, Perda Validação: {val_loss.item():.4f}")
+
+                # Log do uso da GPU ao final de cada época usando ResourceLogger
+                self.resource_logger.log_gpu_usage()
 
                 if val_loss.item() < best_val_loss:
                     best_val_loss = val_loss.item()
@@ -197,13 +294,36 @@ class Trainer:
         logger.info("Gerando recomendações cold-start")
         if keywords:
             logger.info(f"Filtrando notícias com palavras-chave: {keywords}")
-            mask = noticias['title'].str.contains('|'.join(keywords), case=False, na=False) | \
-                   noticias['body'].str.contains('|'.join(keywords), case=False, na=False)
-            filtered_news = noticias[mask]
-            if len(filtered_news) > 0:
-                popular_news = filtered_news.sort_values('issued', ascending=False).head(10)['page'].tolist()
-                logger.info(f"Encontradas {len(popular_news)} notícias relevantes para palavras-chave")
-                return popular_news
+            # Usar embeddings para lidar semanticamente com as palavras-chave
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2').to(device)
+
+            # Gerar embedding para as palavras-chave combinadas
+            keywords_text = " ".join(keywords)
+            with torch.no_grad():
+                keyword_embedding = model.encode(keywords_text, convert_to_tensor=True, device=device)
+            logger.info(f"Embedding de palavras-chave gerado: {keyword_embedding.shape}")
+
+            # Obter embeddings das notícias (já disponíveis em noticias['embedding'])
+            news_embeddings = torch.tensor(noticias['embedding'].tolist(), dtype=torch.float32).to(device)
+            logger.info(f"Embeddings de notícias carregados: {news_embeddings.shape}")
+
+            # Calcular similaridade de cosseno entre as palavras-chave e as notícias
+            logger.info("Calculando similaridade de cosseno entre palavras-chave e notícias")
+            keyword_embedding = keyword_embedding / torch.norm(keyword_embedding, dim=-1, keepdim=True)
+            logger.info(f"Embedding de palavras-chave normalizado: {keyword_embedding.shape}")
+            news_embeddings = news_embeddings / torch.norm(news_embeddings, dim=-1, keepdim=True)
+            logger.info(f"Embeddings de notícias normalizados: {news_embeddings.shape}")
+            similarities = torch.mm(news_embeddings, keyword_embedding.unsqueeze(-1)).squeeze()
+            logger.info(f"Similaridades calculadas: {similarities.shape}")
+
+            # Obter os índices dos top 10 mais similares
+            logger.info("Obtendo top 10 notícias mais relevantes")
+            top_indices = torch.topk(similarities, k=10, largest=True).indices.cpu().numpy()
+            logger.info(f"Top 10 índices: {top_indices}")
+            popular_news = noticias.iloc[top_indices]['page'].tolist()
+            logger.info(f"Encontradas {len(popular_news)} notícias relevantes para palavras-chave")
+            return popular_news
 
         logger.info("Nenhuma palavra-chave fornecida ou resultados encontrados; usando popularidade")
         popular_news = noticias.sort_values('issued', ascending=False).head(10)['page'].tolist()

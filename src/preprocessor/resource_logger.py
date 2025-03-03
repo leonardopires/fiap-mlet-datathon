@@ -49,6 +49,29 @@ class ResourceLogger:
         except pynvml.NVMLError as e:
             return f"GPU: Erro ao acessar ({str(e)})"
 
+    def log_gpu_usage(self) -> None:
+        """
+        Registra o uso da GPU em tempo real para todas as GPUs disponíveis.
+
+        Este método verifica o percentual de utilização e o uso de memória de cada GPU e registra no log.
+        """
+        if not self.gpu_available:
+            logger.info("Uso da GPU: N/A")
+            return
+        try:
+            device_count = pynvml.nvmlDeviceGetCount()
+            gpu_usage = []
+            for i in range(device_count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                gpu_usage.append(
+                    f"GPU {i}: {util.gpu}% usada, Memória GPU: {mem_info.used / 1024 / 1024:.2f}/{mem_info.total / 1024 / 1024:.2f} MB"
+                )
+            logger.info(f"Uso da GPU: {', '.join(gpu_usage)}")
+        except Exception as e:
+            logger.warning(f"Falha ao registrar uso da GPU: {str(e)}")
+
     def log_resources(self, context: str) -> None:
         """
         Registra o uso de recursos do computador.
