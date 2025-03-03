@@ -11,6 +11,7 @@ from src.preprocessor.resource_logger import ResourceLogger  # Importar Resource
 
 logger = logging.getLogger(__name__)
 
+
 class MetricsCalculator:
     def __init__(self, state):
         self.state = state
@@ -90,7 +91,8 @@ class MetricsCalculator:
                     global_engagement[idx] += engagement
                     interaction_counts[idx] += 1
         # Evitar divisão por zero e calcular a média
-        global_engagement = torch.where(interaction_counts > 0, global_engagement / interaction_counts, torch.tensor(0.0, device=self.device))
+        global_engagement = torch.where(interaction_counts > 0, global_engagement / interaction_counts,
+                                        torch.tensor(0.0, device=self.device))
         # Normalizar o engajamento global para o intervalo [0, 1]
         max_global_engagement = torch.max(global_engagement)
         if max_global_engagement > 0:
@@ -118,23 +120,30 @@ class MetricsCalculator:
 
             # Calcula o engajamento do usuário com cada notícia no dataset de notícias
             user_interactions = interacoes[interacoes['userId'] == user_id]
-            engagement_weights = global_engagement.clone()  # Começa com o engajamento global como fallback
+            specific_engagement = torch.zeros(len(noticias), dtype=torch.float32).to(self.device)
+            num_user_interactions = 0
             if not user_interactions.empty:
                 hist = user_interactions['history'].iloc[0].split(', ')
                 clicks = [float(x) for x in user_interactions['numberOfClicksHistory'].iloc[0].split(', ')]
                 times = [float(x) for x in user_interactions['timeOnPageHistory'].iloc[0].split(', ')]
                 scrolls = [float(x) for x in user_interactions['scrollPercentageHistory'].iloc[0].split(', ')]
+                num_user_interactions = len(hist)
 
                 for h, c, t, s in zip(hist, clicks, times, scrolls):
                     if h in page_to_idx:
                         idx = page_to_idx[h]
                         engagement = self.engagement_calculator.calculate_engagement(c, t, s)
-                        engagement_weights[idx] = engagement  # Substitui o engajamento global pelo específico
+                        specific_engagement[idx] = engagement
 
-            # Normalizar os engagement_weights para o intervalo [0, 1]
-            max_engagement = torch.max(engagement_weights)
-            if max_engagement > 0:
-                engagement_weights = engagement_weights / max_engagement
+            # Normalizar o engajamento específico para o intervalo [0, 1]
+            max_specific_engagement = torch.max(specific_engagement)
+            if max_specific_engagement > 0:
+                specific_engagement = specific_engagement / max_specific_engagement
+
+            # Combinar engajamento específico e global com pesos dinâmicos
+            specific_weight = min(num_user_interactions / 5, 1.0)  # Aumenta até 1.0 com 5 interações
+            global_weight = 1.0 - specific_weight
+            engagement_weights = specific_weight * specific_engagement + global_weight * global_engagement
 
             # Processar notícias em lotes
             scores_all = []
@@ -159,7 +168,8 @@ class MetricsCalculator:
                 with torch.no_grad():
                     scores = self.state.REGRESSOR(user_emb_batch, news_embs)
                     scores = scores.squeeze(-1) + torch.rand(scores.shape, device=self.device) * 0.05
-                    scores = scores + (scores * batch_recency_weights) + (scores * batch_engagement_weights)
+                    scores = scores + (scores * batch_recency_weights) + (
+                                scores * batch_engagement_weights * 2.0)  # Aumenta o peso do engajamento
                 logger.debug(f"Scores do lote: shape={scores.shape}")
                 scores_all.append(scores.cpu())  # Move para CPU para liberar memória na GPU
 
@@ -171,19 +181,25 @@ class MetricsCalculator:
                 del news_embs, user_emb_batch, scores
                 torch.cuda.empty_cache()
 
-            # Converte scores_all para tensor e obtém os top-k índices
+            # Converte scores_all para tensor e obtém os top-k índices com diversidade
             scores_all = torch.cat(scores_all, dim=0)  # [total_notcias]
             logger.debug(f"Scores totais: shape={scores_all.shape}")
 
-            # Obtém os top-k índices, evitando duplicatas
             seen_pages = set()
             top_indices_unique = []
             sorted_indices = torch.argsort(scores_all, descending=True).numpy()
+            diversity_scores = torch.ones(len(scores_all), dtype=torch.float32).to(self.device)
+
             for idx in sorted_indices:
                 page = noticias.iloc[idx]['page']
                 if page not in seen_pages:
                     seen_pages.add(page)
                     top_indices_unique.append(idx)
+                    # Aplicar penalidade de diversidade com base na similaridade com notícias já selecionadas
+                    selected_embedding = news_embs[idx]
+                    for selected_idx in top_indices_unique[:-1]:
+                        sim = torch.cosine_similarity(selected_embedding, news_embs[selected_idx], dim=0)
+                        diversity_scores[idx] *= (1 - sim * 0.5)  # Penaliza se for muito semelhante
                 if len(top_indices_unique) >= k:
                     break
 
