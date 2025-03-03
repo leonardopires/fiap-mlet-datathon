@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import time
 from logging.handlers import RotatingFileHandler
 import os
+import anyio  # Importar anyio para executar funções síncronas em threads separadas
 
 from starlette.websockets import WebSocketState, WebSocketDisconnect
 
@@ -277,8 +278,16 @@ class APIServer:
 
             start_time = time.time()
             logger.info(f"Requisição de predição para {request.user_id}")
-            predictions = self.model_manager.predict(self.state, request.user_id, number_of_records=20,
-                                                     keywords=request.keywords)
+
+            # Executa a predição em uma thread separada para não bloquear o loop de eventos
+            predictions = await anyio.to_thread.run_sync(
+                self.model_manager.predict,
+                self.state,
+                request.user_id,
+                20,  # number_of_records
+                request.keywords
+            )
+
             elapsed = time.time() - start_time
             logger.info(f"Predição concluída em {elapsed:.2f} segundos")
             return {"user_id": request.user_id, "acessos_futuros": predictions}

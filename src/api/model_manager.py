@@ -181,13 +181,13 @@ class ModelManager:
 
         # Verifica se existe uma predição válida no cache
         cached_predictions = self._get_cached_prediction(user_id)
-        if cached_predictions:
+        if user_id and cached_predictions:
             return cached_predictions
 
         padrao = r"/noticia/(\d{4}/\d{2}/\d{2})/"
         start_time = time.time()
         if user_id not in state.USER_PROFILES:
-            logger.info(f"Usuário {user_id} não encontrado; aplicando cold-start")
+            logger.info(f"Usuário {user_id} não encontrado; aplicando cold-start. Palavras chave: {keywords}")
             popular_news = self.trainer.handle_cold_start(state.NOTICIAS, keywords)
             predictions = [{
                 "page": page,
