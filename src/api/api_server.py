@@ -316,17 +316,12 @@ class APIServer:
         @self.app.websocket("/ws/status")
         async def websocket_status(websocket: WebSocket):
             async def status_callback(ws):
-                old_training_status = self.training_status
-                old_metrics_status = self.metrics_status
                 while True:
-                    if self.training_status != old_training_status or self.metrics_status != old_metrics_status:
-                        status = {
-                            "training": self.training_status,
-                            "metrics": self.metrics_status
-                        }
-                        old_metrics_status = status["metrics"]
-                        old_training_status = status["training"]
-                        await ws.send_json(status)
+                    status = {
+                        "training": self.training_status,
+                        "metrics": self.metrics_status
+                    }
+                    await ws.send_json(status)
                     await asyncio.sleep(1)
 
             await self._handle_websocket(websocket, status_callback, "status")
@@ -334,12 +329,9 @@ class APIServer:
         @self.app.websocket("/ws/predict/status")
         async def websocket_predict_status(websocket: WebSocket):
             async def predict_status_callback(ws):
-                old_predict_status = self.prediction_status
                 while True:
-                    if self.prediction_status != old_predict_status:
-                        status = self.prediction_status
-                        old_predict_status = status
-                        await ws.send_json(status)
+                    status = self.prediction_status
+                    await ws.send_json(status)
                     await asyncio.sleep(1)
 
             await self._handle_websocket(websocket, predict_status_callback, "predict/status")

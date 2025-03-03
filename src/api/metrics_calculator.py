@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import time
 import os
+from tqdm import tqdm  # Importar tqdm para barras de progresso
 from src.preprocessor.cache_manager import CacheManager
 from src.preprocessor.engagement_calculator import EngagementCalculator
 from src.preprocessor.resource_logger import ResourceLogger  # Importar ResourceLogger
@@ -65,19 +66,22 @@ class MetricsCalculator:
         logger.info("Calculando pesos de recência e engajamento global")
         issued_dates = pd.to_datetime(noticias['issued'], errors='coerce')
         current_time = pd.Timestamp.now(tz=None).tz_localize(None)  # Remove fuso horário de current_time
-        recency_weights = []
-        for date in issued_dates:
+        # Vetorizar o cálculo de recency_weights na GPU
+        time_diff_days = torch.zeros(len(issued_dates), dtype=torch.float32)
+        for i, date in enumerate(issued_dates):
             if pd.isna(date):
-                recency_weights.append(0.1)  # Penaliza notícias sem data
+                time_diff_days[i] = float('nan')
             else:
-                date = date.tz_localize(None)  # Remove fuso horário da data
-                time_diff_days = (current_time - date).days
-                recency = np.exp(-time_diff_days / 30)
-                recency_weights.append(recency)
+                date = date.tz_localize(None)
+                time_diff_days[i] = (current_time - date).days
+        # Mover para GPU e calcular recency_weights
+        time_diff_days = time_diff_days.to(self.device)
+        recency_weights = torch.where(
+            torch.isnan(time_diff_days),
+            torch.tensor(0.1, device=self.device),
+            torch.exp(-time_diff_days / 30)
+        )
         logger.info(f"Calculados pesos de recência para {len(recency_weights)} notícias")
-
-        logger.info("Calculando engajamento global")
-        recency_weights = torch.tensor(recency_weights, dtype=torch.float32).to(self.device)
         logger.info(f"Recency weights: shape={recency_weights.shape}")
 
         # Calcular o engajamento global (média de engajamento de todos os usuários para cada notícia)
@@ -90,6 +94,9 @@ class MetricsCalculator:
         logger.info(f"Page to index: {len(page_to_idx)} páginas mapeadas")
 
         logger.info("Calculando engajamento global")
+        # Pré-processar dados para acumulação na GPU
+        indices = []
+        engagements = []
         for _, row in interacoes.iterrows():
             hist = row['history'].split(', ')
             clicks = [float(x) for x in row['numberOfClicksHistory'].split(', ')]
@@ -99,8 +106,13 @@ class MetricsCalculator:
                 if h in page_to_idx:
                     idx = page_to_idx[h]
                     engagement = self.engagement_calculator.calculate_engagement(c, t, s)
-                    global_engagement[idx] += engagement
-                    interaction_counts[idx] += 1
+                    indices.append(idx)
+                    engagements.append(engagement)
+        # Acumular na GPU usando scatter_add_
+        indices = torch.tensor(indices, dtype=torch.long).to(self.device)
+        engagements = torch.tensor(engagements, dtype=torch.float32).to(self.device)
+        global_engagement.scatter_add_(0, indices, engagements)
+        interaction_counts.index_add_(0, indices, torch.ones_like(indices, dtype=torch.float32))
         logger.info("Engajamento global calculado")
         # Evitar divisão por zero e calcular a média
         logger.info("Normalizando engajamento global")
@@ -126,7 +138,7 @@ class MetricsCalculator:
         batch_size_noticias = 1000  # Reduzido para 1000 para evitar problemas de memória na GPU
         total_notcias = len(noticias)
 
-        for user_idx, user_id in enumerate(user_ids):
+        for user_idx, user_id in enumerate(tqdm(user_ids, desc="Processando usuários", unit="user")):
             user_start_time = time.time()
             if user_id not in self.state.USER_PROFILES:
                 logger.warning(f"Usuário {user_id} não encontrado nos perfis; pulando")
@@ -166,7 +178,8 @@ class MetricsCalculator:
             # Processar notícias em lotes
             scores_all = []
 
-            for batch_start in range(0, total_notcias, batch_size_noticias):
+            for batch_start in tqdm(range(0, total_notcias, batch_size_noticias), desc=f"Notícias do usuário {user_id[:10]} ({user_idx}/{len(user_ids)})",
+                                    leave=False, unit="batch"):
                 batch_end = min(batch_start + batch_size_noticias, total_notcias)
                 batch_noticias = noticias.iloc[batch_start:batch_end]
                 batch_size_actual = batch_end - batch_start  # Calcula o tamanho real do lote
@@ -178,6 +191,8 @@ class MetricsCalculator:
                 batch_recency_weights = recency_weights[batch_start:batch_end]
                 batch_engagement_weights = engagement_weights[batch_start:batch_end]
                 logger.debug(f"Embeddings de notícias do lote: shape={news_embs.shape}")
+                logger.debug(f"Batch recency weights: shape={batch_recency_weights.shape}")
+                logger.debug(f"Batch engagement weights: shape={batch_engagement_weights.shape}")
 
                 # Expande o embedding do usuário para o lote atual
                 user_emb_batch = user_emb.unsqueeze(0).expand(batch_size_actual, -1)
@@ -186,20 +201,27 @@ class MetricsCalculator:
                 # Calcula scores usando o REGRESSOR na GPU
                 with torch.no_grad():
                     scores = self.state.REGRESSOR(user_emb_batch, news_embs)
-                    scores = scores.squeeze(-1) + torch.rand(scores.shape, device=self.device) * 0.05
+                    if scores.dim() == 2 and scores.shape[0] == scores.shape[1]:
+                        # Caso retorne uma matriz de similaridade [batch_size, batch_size]
+                        scores = torch.diagonal(scores)  # Extrai a diagonal
+                    else:
+                        scores = scores.squeeze(-1)  # Caso correto [batch_size, 1] -> [batch_size]
+                    scores = scores + torch.rand(scores.shape, device=self.device) * 0.05
                     scores = scores + (scores * batch_recency_weights) + (scores * batch_engagement_weights * 2.0)
                 logger.debug(f"Scores do lote: shape={scores.shape}, size={batch_size_actual}")
+                # Verificar se scores é 1D
+                if scores.dim() != 1:
+                    logger.error(f"Scores tensor is not 1D: shape={scores.shape}")
+                    raise ValueError(f"Scores tensor is not 1D: shape={scores.shape}")
                 scores_all.append(scores.cpu())  # Move para CPU para liberar memória na GPU
-
-                # Log do uso da GPU a cada lote de notícias usando ResourceLogger
-                if (batch_start // batch_size_noticias) % 10 == 0:  # Log a cada 10 lotes
-                    self.resource_logger.log_gpu_usage()
 
                 # Libera memória da GPU
                 del news_embs, user_emb_batch, scores
                 torch.cuda.empty_cache()
 
             # Converte scores_all para tensor e obtém os top-k índices com diversidade
+            # Log dos shapes antes da concatenação
+            logger.debug(f"Shapes de scores_all antes da concatenação: {[s.shape for s in scores_all]}")
             scores_all = torch.cat(scores_all, dim=0)  # [total_notcias]
             logger.debug(f"Scores totais: shape={scores_all.shape}")
 
