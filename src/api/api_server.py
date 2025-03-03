@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import shutil
 import sys
 import uvicorn
 from fastapi import FastAPI, HTTPException, WebSocket, BackgroundTasks, WebSocketException
@@ -32,7 +33,7 @@ if os.path.exists(log_path):
     log_handler.doRollover()
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='recomendador-g1 | %(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         log_handler,
@@ -121,14 +122,25 @@ class APIServer:
             subsample_frac = request.subsample_frac if request else None
             force_reprocess = request.force_reprocess if request else False
             force_retrain = request.force_retrain if request else False
-
             cache_dir = 'data/cache'
+
+            if force_reprocess or force_retrain:
+                logger.info("Forçando reprocessamento ou retrainamento; resetando estado")
+                self.state.reset()
+
+                # deleta recursivamente a pasta cache e a recria
+                if os.path.exists(cache_dir):
+                    shutil.rmtree(cache_dir)
+
+            # Cria a pasta cache se não existir
+            os.makedirs(cache_dir, exist_ok=True)
+
             interacoes_file = os.path.join(cache_dir, 'interacoes.h5')
             noticias_file = os.path.join(cache_dir, 'noticias.h5')
             user_profiles_file = os.path.join(cache_dir, 'user_profiles_final.h5')
             data_files_exist = all(os.path.exists(f) for f in [interacoes_file, noticias_file, user_profiles_file])
 
-            if force_reprocess or not data_files_exist:
+            if not data_files_exist:
                 self.training_status["progress"] = "preprocessing"
                 logger.info("Pré-processamento necessário; iniciando initialize_data")
                 self.data_initializer.initialize_data(self.state, subsample_frac, force_reprocess)
