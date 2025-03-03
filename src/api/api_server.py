@@ -301,7 +301,7 @@ class APIServer:
                 fetch_only_existing: bool = False,
                 background_tasks: BackgroundTasks = None
         ):
-            logger.info("Requisição para obter métricas recebida")
+            logger.debug("Requisição para obter métricas recebida")
             if hasattr(self.state, 'metrics') and not force_recalc:
                 return {"metrics": self.state.metrics}
             if fetch_only_existing:

@@ -40,7 +40,7 @@ class ModelManager:
         else:
             raise HTTPException(status_code=500, detail="Falha no treinamento: dados insuficientes")
 
-    def predict(self, state: StateManager, user_id: str, number_of_records=20, keywords: Optional[List[str]] = None) -> list[dict]:
+    def predict(self, state: StateManager, user_id: str, number_of_records=10, keywords: Optional[List[str]] = None) -> list[dict]:
         if state.PREDICTOR is None:
             logger.warning("Modelo não treinado")
             raise HTTPException(status_code=400, detail="Modelo não treinado")
