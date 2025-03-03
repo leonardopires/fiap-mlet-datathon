@@ -1,11 +1,12 @@
 import logging
+
+import numpy as np
 import torch
 import pandas as pd
 from src.preprocessor.engagement_calculator import EngagementCalculator
 from src.preprocessor.resource_logger import ResourceLogger  # Importar ResourceLogger
 
 logger = logging.getLogger(__name__)
-
 
 class Predictor:
     def __init__(self, interacoes, noticias, user_profiles, model):
@@ -26,15 +27,20 @@ class Predictor:
 
         # Carrega embeddings de notícias e datas
         news_embs = torch.tensor(self.noticias['embedding'].tolist(), dtype=torch.float32).to(self.device)
-        issued_dates = pd.to_datetime(self.noticias['issued'],
-                                      errors='coerce')  # Converte datas, tratando valores inválidos como NaT
+        issued_dates = pd.to_datetime(self.noticias['issued'], errors='coerce')  # Converte datas, tratando valores inválidos como NaT
+        # Garantir que todas as datas sejam tz-naive
+        issued_dates = issued_dates.dt.tz_localize(None)  # Remove informações de fuso horário, se houver
+        # Verificar se alguma data ainda contém fuso horário
+        if any(issued_dates.apply(lambda x: x.tzinfo is not None if pd.notna(x) else False)):
+            logger.warning("Algumas datas em issued_dates ainda contêm fuso horário após conversão")
         # Calcula a recência como um fator de peso (0 a 1)
-        current_time = pd.Timestamp.now()
+        current_time = pd.Timestamp.now(tz=None).tz_localize(None)  # Remove fuso horário de current_time
         recency_weights = []
         for date in issued_dates:
             if pd.isna(date):
                 recency_weights.append(0.1)  # Penaliza notícias sem data
             else:
+                date = date.tz_localize(None)  # Remove fuso horário da data
                 time_diff_days = (current_time - date).days
                 recency = np.exp(-time_diff_days / 30)  # Decay exponencial com meia-vida de 30 dias
                 recency_weights.append(recency)
@@ -56,8 +62,7 @@ class Predictor:
                     global_engagement[idx] += engagement
                     interaction_counts[idx] += 1
         # Evitar divisão por zero e calcular a média
-        global_engagement = torch.where(interaction_counts > 0, global_engagement / interaction_counts,
-                                        torch.tensor(0.0, device=self.device))
+        global_engagement = torch.where(interaction_counts > 0, global_engagement / interaction_counts, torch.tensor(0.0, device=self.device))
         # Normalizar o engajamento global para o intervalo [0, 1]
         max_global_engagement = torch.max(global_engagement)
         if max_global_engagement > 0:
@@ -78,7 +83,7 @@ class Predictor:
                 if h in page_to_idx:
                     idx = page_to_idx[h]
                     engagement = self.engagement_calculator.calculate_engagement(c, t, s)
-                    specific_engagement[idx] = engagement
+                    specific_engagement[idx] = engagement  # Substitui o engajamento global pelo específico
 
         # Normalizar o engajamento específico para o intervalo [0, 1]
         max_specific_engagement = torch.max(specific_engagement)
@@ -96,8 +101,7 @@ class Predictor:
             self.model.eval()
             scores = self.model(user_emb.expand_as(news_embs), news_embs).squeeze()
             # Ajusta os scores com o peso de recência e engajamento do usuário
-            scores = scores + (scores * recency_weights) + (
-                        scores * engagement_weights * 2.0)  # Aumenta o peso do engajamento
+            scores = scores + (scores * recency_weights) + (scores * engagement_weights * 2.0)  # Aumenta o peso do engajamento
             # Log do uso da GPU após calcular os scores
             self.resource_logger.log_gpu_usage()
 

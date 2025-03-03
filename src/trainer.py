@@ -90,8 +90,8 @@ class Trainer:
         validacao_history = validacao[news_column].str.split(', ').explode().unique()
         all_pages = np.unique(np.concatenate((noticias['page'].values, validacao_history)))
 
-        # Treinar o LabelEncoder com todos os identificadores possíveis (para todas as notícias)
-        logger.info("Treinando LabelEncoder com todas as notícias")
+        # Treinar o LabelEncoder com todos os identificadores possíveis
+        logger.info("Treinando LabelEncoder")
         news_encoder = LabelEncoder()
         news_encoder.fit(all_pages)
 
@@ -168,8 +168,32 @@ class Trainer:
         logger.info(f"Dataset criado. Elapsed: {elapsed:.2f} s")
 
         logger.info("Preparando dados de validação uma única vez")
+        # Aplicar a mesma filtragem para val_df
+        val_pages = val_df[news_column].str.split(', ', expand=True).stack().reset_index(level=1, drop=True)
+        val_pages = val_pages[val_pages.isin(noticias_set)].groupby(level=0).first()
+        val_df = val_df.loc[val_pages.index]
+        val_df['news_idx'] = val_pages.map(news_page_to_encoded_idx)
+        val_df = val_df.dropna(subset=['news_idx'])
+        val_df['news_idx'] = val_df['news_idx'].astype(int)
+        val_valid_indices = (val_df['news_idx'] >= 0) & (val_df['news_idx'] <= max_news_idx)
+        val_df = val_df[val_valid_indices]
+        val_df = val_df[val_df['userId'].isin(user_profiles.keys())]
+        logger.info(f"Filtradas {len(val_df)} linhas válidas em val_df após verificação")
+
         val_X_user_indices = torch.tensor(val_df['userId'].map(user_id_to_idx).values, dtype=torch.long).to(device)
-        val_X_news_indices = torch.tensor(val_df[news_column].map(news_page_to_idx).values, dtype=torch.long).to(device)
+        val_X_news_indices = torch.tensor(val_df['news_idx'].values, dtype=torch.long).to(device)
+        # Verificar limites dos índices de validação
+        logger.info(
+            f"Verificando limites dos índices de validação: val_X_user_indices max={val_X_user_indices.max().item()}, min={val_X_user_indices.min().item()}")
+        logger.info(
+            f"Verificando limites dos índices de validação: val_X_news_indices max={val_X_news_indices.max().item()}, min={val_X_news_indices.min().item()}")
+        if val_X_user_indices.max().item() >= len(user_embeddings):
+            raise ValueError(
+                f"Índice de usuário de validação fora dos limites: max={val_X_user_indices.max().item()}, esperado < {len(user_embeddings)}")
+        if val_X_news_indices.max().item() >= len(news_embeddings):
+            raise ValueError(
+                f"Índice de notícia de validação fora dos limites: max={val_X_news_indices.max().item()}, esperado < {len(news_embeddings)}")
+
         val_X_user = user_embeddings[val_X_user_indices]
         val_X_news = news_embeddings[val_X_news_indices]
         val_y = torch.tensor(val_df['relevance'].values, dtype=torch.float32).unsqueeze(1).to(device)
@@ -183,7 +207,7 @@ class Trainer:
             batch_size=batch_size,
             shuffle=True,
             num_workers=0 if device.type == "cuda" else min(8, os.cpu_count() or 1),
-            pin_memory=True
+            pin_memory=False
         )
         elapsed = time.time() - start_time
         logger.info(f"Dados preparados em {elapsed:.2f} segundos")
@@ -278,17 +302,25 @@ class Trainer:
             keywords_text = " ".join(keywords)
             with torch.no_grad():
                 keyword_embedding = model.encode(keywords_text, convert_to_tensor=True, device=device)
+            logger.info(f"Embedding de palavras-chave gerado: {keyword_embedding.shape}")
 
             # Obter embeddings das notícias (já disponíveis em noticias['embedding'])
             news_embeddings = torch.tensor(noticias['embedding'].tolist(), dtype=torch.float32).to(device)
+            logger.info(f"Embeddings de notícias carregados: {news_embeddings.shape}")
 
             # Calcular similaridade de cosseno entre as palavras-chave e as notícias
+            logger.info("Calculando similaridade de cosseno entre palavras-chave e notícias")
             keyword_embedding = keyword_embedding / torch.norm(keyword_embedding, dim=-1, keepdim=True)
+            logger.info(f"Embedding de palavras-chave normalizado: {keyword_embedding.shape}")
             news_embeddings = news_embeddings / torch.norm(news_embeddings, dim=-1, keepdim=True)
+            logger.info(f"Embeddings de notícias normalizados: {news_embeddings.shape}")
             similarities = torch.mm(news_embeddings, keyword_embedding.unsqueeze(-1)).squeeze()
+            logger.info(f"Similaridades calculadas: {similarities.shape}")
 
             # Obter os índices dos top 10 mais similares
+            logger.info("Obtendo top 10 notícias mais relevantes")
             top_indices = torch.topk(similarities, k=10, largest=True).indices.cpu().numpy()
+            logger.info(f"Top 10 índices: {top_indices}")
             popular_news = noticias.iloc[top_indices]['page'].tolist()
             logger.info(f"Encontradas {len(popular_news)} notícias relevantes para palavras-chave")
             return popular_news
