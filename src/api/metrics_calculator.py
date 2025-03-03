@@ -63,22 +63,34 @@ class MetricsCalculator:
         recommended_items = set()
 
         # Calcular pesos de recência
+        logger.info("Calculando pesos de recência e engajamento global")
         issued_dates = pd.to_datetime(noticias['issued'], errors='coerce')
-        current_time = pd.Timestamp.now()
+        current_time = pd.Timestamp.now(tz=None).tz_localize(None)  # Remove fuso horário de current_time
         recency_weights = []
         for date in issued_dates:
             if pd.isna(date):
                 recency_weights.append(0.1)  # Penaliza notícias sem data
             else:
+                date = date.tz_localize(None)  # Remove fuso horário da data
                 time_diff_days = (current_time - date).days
                 recency = np.exp(-time_diff_days / 30)
                 recency_weights.append(recency)
+        logger.info(f"Calculados pesos de recência para {len(recency_weights)} notícias")
+
+        logger.info("Calculando engajamento global")
         recency_weights = torch.tensor(recency_weights, dtype=torch.float32).to(self.device)
+        logger.info(f"Recency weights: shape={recency_weights.shape}")
 
         # Calcular o engajamento global (média de engajamento de todos os usuários para cada notícia)
+        logger.info("Calculando engajamento global")
         global_engagement = torch.zeros(len(noticias), dtype=torch.float32).to(self.device)
+        logger.info(f"Global engagement: shape={global_engagement.shape}")
         interaction_counts = torch.zeros(len(noticias), dtype=torch.float32).to(self.device)
+        logger.info(f"Interaction counts: shape={interaction_counts.shape}")
         page_to_idx = {page: idx for idx, page in enumerate(noticias['page'])}
+        logger.info(f"Page to index: {len(page_to_idx)} páginas mapeadas")
+
+        logger.info("Calculando engajamento global")
         for _, row in interacoes.iterrows():
             hist = row['history'].split(', ')
             clicks = [float(x) for x in row['numberOfClicksHistory'].split(', ')]
@@ -90,20 +102,27 @@ class MetricsCalculator:
                     engagement = self.engagement_calculator.calculate_engagement(c, t, s)
                     global_engagement[idx] += engagement
                     interaction_counts[idx] += 1
+        logger.info("Engajamento global calculado")
         # Evitar divisão por zero e calcular a média
+        logger.info("Normalizando engajamento global")
         global_engagement = torch.where(interaction_counts > 0, global_engagement / interaction_counts,
                                         torch.tensor(0.0, device=self.device))
+        logger.info(f"Global engagement normalizado: shape={global_engagement.shape}")
         # Normalizar o engajamento global para o intervalo [0, 1]
         max_global_engagement = torch.max(global_engagement)
+        logger.info(f"Máximo de engajamento global: {max_global_engagement}")
         if max_global_engagement > 0:
             global_engagement = global_engagement / max_global_engagement
 
+        logger.info("Engajamento global normalizado")
         # Colocar o REGRESSOR na GPU e em modo de avaliação
+        logger.info("Calculando métricas de avaliação para cada usuário")
         if self.state.REGRESSOR is None:
             logger.error("REGRESSOR não está disponível")
             raise ValueError("REGRESSOR não está disponível")
         self.state.REGRESSOR.to(self.device)
         self.state.REGRESSOR.eval()
+        logger.info("REGRESSOR movido para a GPU e em modo de avaliação")
 
         batch_size_noticias = 1000  # Reduzido para 1000 para evitar problemas de memória na GPU
         total_notcias = len(noticias)

@@ -317,13 +317,15 @@ class APIServer:
         async def websocket_status(websocket: WebSocket):
             async def status_callback(ws):
                 old_training_status = self.training_status
-                old_metrics_status = self.training_status
+                old_metrics_status = self.metrics_status
                 while True:
                     if self.training_status != old_training_status or self.metrics_status != old_metrics_status:
                         status = {
                             "training": self.training_status,
                             "metrics": self.metrics_status
                         }
+                        old_metrics_status = self.metrics_status
+                        old_training_status = self.training_status
                         await ws.send_json(status)
                     await asyncio.sleep(1)
 
@@ -336,6 +338,7 @@ class APIServer:
                 while True:
                     if self.prediction_status != old_predict_status:
                         status = self.prediction_status
+                        old_predict_status = self.prediction_status
                         await ws.send_json(status)
                     await asyncio.sleep(1)
 
