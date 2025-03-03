@@ -4,10 +4,10 @@ import pandas as pd
 import numpy as np
 import time
 import os
-from tqdm import tqdm
+from tqdm import tqdm  # Importar tqdm para barras de progresso
 from src.preprocessor.cache_manager import CacheManager
 from src.preprocessor.engagement_calculator import EngagementCalculator
-from src.preprocessor.resource_logger import ResourceLogger
+from src.preprocessor.resource_logger import ResourceLogger  # Importar ResourceLogger
 
 logger = logging.getLogger(__name__)
 
@@ -64,26 +64,16 @@ class MetricsCalculator:
 
         # Calcular pesos de recência
         logger.info("Calculando pesos de recência e engajamento global")
-        # Carrega a base de recência e ajusta com o tempo atual
-        recency_base_file = 'data/cache/recency_base.h5'
-        if not os.path.exists(recency_base_file):
-            logger.warning(f"Arquivo de base de recência não encontrado: {recency_base_file}; calculando do zero")
-            issued_dates = pd.to_datetime(noticias['issued'], errors='coerce')
-            current_time = pd.Timestamp.now(tz=None).tz_localize(None)  # Remove fuso horário de current_time
-            # Vetorizar o cálculo de recency_weights na GPU
-            time_diff_days = torch.zeros(len(issued_dates), dtype=torch.float32)
-            for i, date in enumerate(issued_dates):
-                if pd.isna(date):
-                    time_diff_days[i] = float('nan')
-                else:
-                    date = date.tz_localize(None)
-                    time_diff_days[i] = (current_time - date).days
-            self.cache_manager.save_array(recency_base_file, time_diff_days.cpu().numpy())
-            logger.info(f"Base de recência salva em {recency_base_file}")
-        else:
-            logger.info(f"Carregando base de recência do cache: {recency_base_file}")
-            time_diff_days = torch.tensor(self.cache_manager.load_array(recency_base_file), dtype=torch.float32)
-
+        issued_dates = pd.to_datetime(noticias['issued'], errors='coerce')
+        current_time = pd.Timestamp.now(tz=None).tz_localize(None)  # Remove fuso horário de current_time
+        # Vetorizar o cálculo de recency_weights na GPU
+        time_diff_days = torch.zeros(len(issued_dates), dtype=torch.float32)
+        for i, date in enumerate(issued_dates):
+            if pd.isna(date):
+                time_diff_days[i] = float('nan')
+            else:
+                date = date.tz_localize(None)
+                time_diff_days[i] = (current_time - date).days
         # Mover para GPU e calcular recency_weights
         time_diff_days = time_diff_days.to(self.device)
         recency_weights = torch.where(
@@ -94,58 +84,48 @@ class MetricsCalculator:
         logger.info(f"Calculados pesos de recência para {len(recency_weights)} notícias")
         logger.info(f"Recency weights: shape={recency_weights.shape}")
 
-        # Carrega global_engagement do cache
-        engagement_cache_file = 'data/cache/global_engagement.h5'
+        # Calcular o engajamento global (média de engajamento de todos os usuários para cada notícia)
+        logger.info("Calculando engajamento global")
+        global_engagement = torch.zeros(len(noticias), dtype=torch.float32).to(self.device)
+        logger.info(f"Global engagement: shape={global_engagement.shape}")
+        interaction_counts = torch.zeros(len(noticias), dtype=torch.float32).to(self.device)
+        logger.info(f"Interaction counts: shape={interaction_counts.shape}")
         page_to_idx = {page: idx for idx, page in enumerate(noticias['page'])}
         logger.info(f"Page to index: {len(page_to_idx)} páginas mapeadas")
-        if not os.path.exists(engagement_cache_file):
-            logger.warning(f"Arquivo de engajamento global não encontrado: {engagement_cache_file}; calculando do zero")
-            logger.info("Calculando engajamento global")
-            global_engagement = torch.zeros(len(noticias), dtype=torch.float32).to(self.device)
-            logger.info(f"Global engagement: shape={global_engagement.shape}")
-            interaction_counts = torch.zeros(len(noticias), dtype=torch.float32).to(self.device)
-            logger.info(f"Interaction counts: shape={interaction_counts.shape}")
 
-            logger.info("Calculando engajamento global")
-            # Pré-processar dados para acumulação na GPU
-            indices = []
-            engagements = []
-            for _, row in interacoes.iterrows():
-                hist = row['history'].split(', ')
-                clicks = [float(x) for x in row['numberOfClicksHistory'].split(', ')]
-                times = [float(x) for x in row['timeOnPageHistory'].split(', ')]
-                scrolls = [float(x) for x in row['scrollPercentageHistory'].split(', ')]
-                for h, c, t, s in zip(hist, clicks, times, scrolls):
-                    if h in page_to_idx:
-                        idx = page_to_idx[h]
-                        engagement = self.engagement_calculator.calculate_engagement(c, t, s)
-                        indices.append(idx)
-                        engagements.append(engagement)
-            # Acumular na GPU usando scatter_add_
-            indices = torch.tensor(indices, dtype=torch.long).to(self.device)
-            engagements = torch.tensor(engagements, dtype=torch.float32).to(self.device)
-            global_engagement.scatter_add_(0, indices, engagements)
-            interaction_counts.index_add_(0, indices, torch.ones_like(indices, dtype=torch.float32))
-            logger.info("Engajamento global calculado")
-            # Evitar divisão por zero e calcular a média
-            logger.info("Normalizando engajamento global")
-            global_engagement = torch.where(interaction_counts > 0, global_engagement / interaction_counts,
-                                            torch.tensor(0.0, device=self.device))
-            logger.info(f"Global engagement normalizado: shape={global_engagement.shape}")
-            # Normalizar o engajamento global para o intervalo [0, 1]
-            max_global_engagement = torch.max(global_engagement)
-            logger.info(f"Máximo de engajamento global: {max_global_engagement}")
-            if max_global_engagement > 0:
-                global_engagement = global_engagement / max_global_engagement
-            logger.info("Engajamento global normalizado")
-            self.cache_manager.save_array(engagement_cache_file, global_engagement.cpu().numpy())
-            logger.info(f"Engajamento global salvo em {engagement_cache_file}")
-        else:
-            logger.info(f"Carregando global_engagement do cache: {engagement_cache_file}")
-            global_engagement = torch.tensor(self.cache_manager.load_array(engagement_cache_file),
-                                             dtype=torch.float32).to(self.device)
-            logger.info(f"Engajamento global carregado: shape={global_engagement.shape}")
+        logger.info("Calculando engajamento global")
+        # Pré-processar dados para acumulação na GPU
+        indices = []
+        engagements = []
+        for _, row in interacoes.iterrows():
+            hist = row['history'].split(', ')
+            clicks = [float(x) for x in row['numberOfClicksHistory'].split(', ')]
+            times = [float(x) for x in row['timeOnPageHistory'].split(', ')]
+            scrolls = [float(x) for x in row['scrollPercentageHistory'].split(', ')]
+            for h, c, t, s in zip(hist, clicks, times, scrolls):
+                if h in page_to_idx:
+                    idx = page_to_idx[h]
+                    engagement = self.engagement_calculator.calculate_engagement(c, t, s)
+                    indices.append(idx)
+                    engagements.append(engagement)
+        # Acumular na GPU usando scatter_add_
+        indices = torch.tensor(indices, dtype=torch.long).to(self.device)
+        engagements = torch.tensor(engagements, dtype=torch.float32).to(self.device)
+        global_engagement.scatter_add_(0, indices, engagements)
+        interaction_counts.index_add_(0, indices, torch.ones_like(indices, dtype=torch.float32))
+        logger.info("Engajamento global calculado")
+        # Evitar divisão por zero e calcular a média
+        logger.info("Normalizando engajamento global")
+        global_engagement = torch.where(interaction_counts > 0, global_engagement / interaction_counts,
+                                        torch.tensor(0.0, device=self.device))
+        logger.info(f"Global engagement normalizado: shape={global_engagement.shape}")
+        # Normalizar o engajamento global para o intervalo [0, 1]
+        max_global_engagement = torch.max(global_engagement)
+        logger.info(f"Máximo de engajamento global: {max_global_engagement}")
+        if max_global_engagement > 0:
+            global_engagement = global_engagement / max_global_engagement
 
+        logger.info("Engajamento global normalizado")
         # Colocar o REGRESSOR na GPU e em modo de avaliação
         logger.info("Calculando métricas de avaliação para cada usuário")
         if self.state.REGRESSOR is None:
@@ -198,8 +178,7 @@ class MetricsCalculator:
             # Processar notícias em lotes
             scores_all = []
 
-            for batch_start in tqdm(range(0, total_notcias, batch_size_noticias),
-                                    desc=f"Notícias do usuário {user_id[:10]} ({user_idx}/{len(user_ids)})",
+            for batch_start in tqdm(range(0, total_notcias, batch_size_noticias), desc=f"Notícias do usuário {user_id[:10]} ({user_idx}/{len(user_ids)})",
                                     leave=False, unit="batch"):
                 batch_end = min(batch_start + batch_size_noticias, total_notcias)
                 batch_noticias = noticias.iloc[batch_start:batch_end]
@@ -309,8 +288,8 @@ class MetricsCalculator:
                 torch.cuda.empty_cache()
 
             elapsed_user = time.time() - user_start_time
-            logger.debug(
-                f"Usuário {user_id} processado em {elapsed_user:.2f} segundos: Precisão@{k}={precision_at_k:.4f}, Recall@{k}={recall_at_k:.4f}")
+            logger.debug(f"Usuário {user_id} processado em {elapsed_user:.2f} segundos: "
+                         f"Precisão@{k}={precision_at_k:.4f}, Recall@{k}={recall_at_k:.4f}")
 
         # Cobertura
         catalog_coverage = len(recommended_items) / len(noticias)

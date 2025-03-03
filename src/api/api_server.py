@@ -16,7 +16,6 @@ from src.data_loader import DataLoader
 from src.predictor import Predictor
 from src.preprocessor import Preprocessor
 from src.trainer import Trainer
-from src.db_initializer import DBInitializer
 from .state_manager import StateManager
 from .data_initializer import DataInitializer
 from .metrics_calculator import MetricsCalculator
@@ -73,28 +72,8 @@ class APIServer:
         self.metrics_calculator = MetricsCalculator(self.state)
         self.training_status = {"running": False, "progress": "idle", "error": None}
         self.metrics_status = {"running": False, "progress": "idle", "error": None}
-        self.prediction_status = {"running": False, "progress": "idle", "error": None}
-        # Inicializa o banco de dados
-        self.db_initializer = DBInitializer(
-            host=os.getenv("POSTGRES_HOST", "postgres"),
-            port=int(os.getenv("POSTGRES_PORT", 5432)),
-            dbname=os.getenv("POSTGRES_DB", "recomendador_db"),
-            user=os.getenv("POSTGRES_USER", "recomendador"),
-            password=os.getenv("POSTGRES_PASSWORD", "senha123")
-        )
-        self._initialize_db()
+        self.prediction_status = {"running": False, "progress": "idle", "error": None}  # Novo estado para predição
         self.setup_routes()
-
-    def _initialize_db(self):
-        """Inicializa o banco de dados e cria a tabela predictions_cache."""
-        try:
-            self.db_initializer.connect()
-            self.db_initializer.initialize_db()
-        except Exception as e:
-            logger.error(f"Falha ao inicializar o banco de dados: {e}")
-            raise
-        finally:
-            self.db_initializer.close()
 
     async def _handle_websocket(self, websocket: WebSocket, callback: callable, callback_name: str):
         """Gerencia conexão WebSocket, executa a callback e trata erros de forma genérica."""
@@ -148,6 +127,7 @@ class APIServer:
             if force_reprocess or force_retrain:
                 logger.info("Forçando reprocessamento ou retrainamento; resetando estado")
                 self.state.reset()
+
                 # deleta recursivamente a pasta cache e a recria
                 if os.path.exists(cache_dir):
                     shutil.rmtree(cache_dir)
@@ -277,8 +257,7 @@ class APIServer:
 
             start_time = time.time()
             logger.info(f"Requisição de predição para {request.user_id}")
-            predictions = self.model_manager.predict(self.state, request.user_id, number_of_records=20,
-                                                     keywords=request.keywords)
+            predictions = self.model_manager.predict(self.state, request.user_id, number_of_records=20, keywords=request.keywords)
             elapsed = time.time() - start_time
             logger.info(f"Predição concluída em {elapsed:.2f} segundos")
             return {"user_id": request.user_id, "acessos_futuros": predictions}
