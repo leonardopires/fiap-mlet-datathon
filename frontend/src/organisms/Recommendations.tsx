@@ -7,7 +7,8 @@ import FormField from '../molecules/FormField';
 import RecommendationCard from '../molecules/RecommendationCard';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import {Box, useTheme, CircularProgress, Typography, Grid} from '@mui/material';
-import {useSnackbar} from '../contexts/SnackbarContext'; // Importe o hook
+import {useSnackbar} from '../contexts/SnackbarContext';
+import {extractDate} from "../utils/api"; // Importe o hook
 
 interface Recommendation {
   page: string;
@@ -72,7 +73,10 @@ const Recommendations: React.FC = () => {
       let acessosFuturos = (response.data.acessos_futuros || []).filter((rec: Recommendation) => {
         const exists = urlSet.has(rec.link);
         urlSet.add(rec.link);
-        return !exists;
+        return !exists && extractDate(rec);
+      });
+      acessosFuturos.sort((a: Recommendation, b: Recommendation) => {
+        return new Date(extractDate(b)).getTime() - new Date(extractDate(a)).getTime();
       });
       // limita o tamanho do array a 10
       acessosFuturos = acessosFuturos.slice(0, Math.min(10, acessosFuturos.length));

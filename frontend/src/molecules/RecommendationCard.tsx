@@ -2,18 +2,13 @@
 import React from 'react';
 import { css } from '@emotion/react';
 import { Card, CardContent, Typography, useTheme } from '@mui/material';
-
-interface Recommendation {
-  page: string;
-  title: string;
-  link: string;
-  date?: string;
-}
+import {extractDate, Recommendation} from "../utils/api";
 
 interface RecommendationCardProps {
   recommendation: Recommendation;
   onLinkClick?: (page: string) => void;
 }
+
 
 const RecommendationCard: React.FC<RecommendationCardProps> = ({ recommendation, onLinkClick }) => {
   const theme = useTheme();
@@ -49,11 +44,6 @@ const RecommendationCard: React.FC<RecommendationCardProps> = ({ recommendation,
     }
   `;
 
-  const extractDate = (rec: Recommendation): string => {
-    const pattern = /\/noticia\/(\d{4}\/\d{2}\/\d{2})\//;
-    const match = rec.link.match(pattern);
-    return match && match[1] ? `${match[1].split('/')[2]}/${match[1].split('/')[1]}/${match[1].split('/')[0]}` : 'Data não disponível';
-  };
 
   return (
     <Card css={cardStyle}>
