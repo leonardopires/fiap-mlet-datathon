@@ -32,7 +32,7 @@ if os.path.exists(log_path):
     log_handler.doRollover()
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='recomendador-g1 | %(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         log_handler,

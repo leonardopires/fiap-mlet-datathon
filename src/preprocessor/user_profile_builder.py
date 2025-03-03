@@ -72,7 +72,8 @@ class UserProfileBuilder:
                         eng = self.calculator.calculate_engagement(c, t, s)  # Calcula o engajamento
                         rec = self.calculator.calculate_recency(ts, max_ts)  # Calcula a recência
                         embeddings.append(emb)  # Adiciona o embedding
-                        weights.append(eng * rec)  # Adiciona o peso (engajamento x recência)
+                        weights.append(eng * rec * 0.5 + rec * 0.5)     # Reduz o peso do engajamento,
+                                                                        # aumenta o peso da recência
 
                 # Se temos embeddings, calcula o perfil do usuário
                 if embeddings:
