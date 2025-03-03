@@ -324,8 +324,8 @@ class APIServer:
                             "training": self.training_status,
                             "metrics": self.metrics_status
                         }
-                        old_metrics_status = self.metrics_status
-                        old_training_status = self.training_status
+                        old_metrics_status = status["metrics"]
+                        old_training_status = status["training"]
                         await ws.send_json(status)
                     await asyncio.sleep(1)
 
@@ -338,7 +338,7 @@ class APIServer:
                 while True:
                     if self.prediction_status != old_predict_status:
                         status = self.prediction_status
-                        old_predict_status = self.prediction_status
+                        old_predict_status = status
                         await ws.send_json(status)
                     await asyncio.sleep(1)
 

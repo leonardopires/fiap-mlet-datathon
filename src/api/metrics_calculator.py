@@ -1,4 +1,3 @@
-# src/metrics_calculator.py
 import logging
 import torch
 import pandas as pd
@@ -170,6 +169,7 @@ class MetricsCalculator:
             for batch_start in range(0, total_notcias, batch_size_noticias):
                 batch_end = min(batch_start + batch_size_noticias, total_notcias)
                 batch_noticias = noticias.iloc[batch_start:batch_end]
+                batch_size_actual = batch_end - batch_start  # Calcula o tamanho real do lote
                 logger.debug(f"Processando lote de notícias {batch_start} a {batch_end} de {total_notcias}")
 
                 # Carrega embeddings e recency weights do lote atual na GPU
@@ -180,16 +180,15 @@ class MetricsCalculator:
                 logger.debug(f"Embeddings de notícias do lote: shape={news_embs.shape}")
 
                 # Expande o embedding do usuário para o lote atual
-                user_emb_batch = user_emb.unsqueeze(0).expand(len(news_embs), -1)
+                user_emb_batch = user_emb.unsqueeze(0).expand(batch_size_actual, -1)
                 logger.debug(f"Embedding do usuário expandido: shape={user_emb_batch.shape}")
 
                 # Calcula scores usando o REGRESSOR na GPU
                 with torch.no_grad():
                     scores = self.state.REGRESSOR(user_emb_batch, news_embs)
                     scores = scores.squeeze(-1) + torch.rand(scores.shape, device=self.device) * 0.05
-                    scores = scores + (scores * batch_recency_weights) + (
-                                scores * batch_engagement_weights * 2.0)  # Aumenta o peso do engajamento
-                logger.debug(f"Scores do lote: shape={scores.shape}")
+                    scores = scores + (scores * batch_recency_weights) + (scores * batch_engagement_weights * 2.0)
+                logger.debug(f"Scores do lote: shape={scores.shape}, size={batch_size_actual}")
                 scores_all.append(scores.cpu())  # Move para CPU para liberar memória na GPU
 
                 # Log do uso da GPU a cada lote de notícias usando ResourceLogger
@@ -215,9 +214,12 @@ class MetricsCalculator:
                     seen_pages.add(page)
                     top_indices_unique.append(idx)
                     # Aplicar penalidade de diversidade com base na similaridade com notícias já selecionadas
-                    selected_embedding = news_embs[idx]
+                    selected_embedding = torch.tensor(noticias['embedding'].iloc[idx], dtype=torch.float32).to(
+                        self.device)
                     for selected_idx in top_indices_unique[:-1]:
-                        sim = torch.cosine_similarity(selected_embedding, news_embs[selected_idx], dim=0)
+                        other_embedding = torch.tensor(noticias['embedding'].iloc[selected_idx],
+                                                       dtype=torch.float32).to(self.device)
+                        sim = torch.cosine_similarity(selected_embedding, other_embedding, dim=0)
                         diversity_scores[idx] *= (1 - sim * 0.5)  # Penaliza se for muito semelhante
                 if len(top_indices_unique) >= k:
                     break
