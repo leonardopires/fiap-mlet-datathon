@@ -6,6 +6,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
+
 class DBInitializer:
     def __init__(self, host: str, port: int, dbname: str, user: str, password: str):
         self.host = host
@@ -39,9 +40,10 @@ class DBInitializer:
                     raise
 
     def initialize_db(self):
-        """Cria a tabela predictions_cache se não existir."""
+        """Cria as tabelas predictions_cache e keywords_recommendations_cache se não existirem."""
         try:
             with self.connection.cursor() as cursor:
+                # Tabela para predições baseadas em user_id
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS predictions_cache (
                         user_id TEXT PRIMARY KEY,
@@ -50,10 +52,19 @@ class DBInitializer:
                     );
                     CREATE INDEX IF NOT EXISTS idx_predictions_cache_timestamp ON predictions_cache (timestamp);
                 """)
+                # Tabela para recomendações baseadas em keywords
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS keywords_recommendations_cache (
+                        cache_key TEXT PRIMARY KEY,
+                        recommendations JSONB NOT NULL,
+                        timestamp TIMESTAMP NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_keywords_recommendations_cache_timestamp ON keywords_recommendations_cache (timestamp);
+                """)
                 self.connection.commit()
-                logger.info("Tabela predictions_cache criada ou já existe")
+                logger.info("Tabelas predictions_cache e keywords_recommendations_cache criadas ou já existem")
         except psycopg2.Error as e:
-            logger.error(f"Erro ao criar tabela predictions_cache: {e}")
+            logger.error(f"Erro ao criar tabelas: {e}")
             raise
 
     def close(self):
@@ -61,6 +72,7 @@ class DBInitializer:
         if self.connection:
             self.connection.close()
             logger.debug("Conexão com PostgreSQL fechada")
+
 
 def get_db_connection():
     """Retorna uma conexão com o PostgreSQL."""

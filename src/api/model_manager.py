@@ -17,8 +17,10 @@ from src.preprocessor.cache_manager import CacheManager
 import psycopg2
 from psycopg2.extras import Json
 from datetime import datetime, timedelta
+import hashlib  # Para gerar hash das keywords
 
 logger = logging.getLogger(__name__)
+
 
 class ModelManager:
     def __init__(self, trainer: Trainer, predictor_class: type):
@@ -106,6 +108,18 @@ class ModelManager:
         elapsed = time.time() - start_time
         logger.info(f"Engajamento global calculado e salvo em {engagement_cache_file} em {elapsed:.2f} segundos")
 
+    def _generate_keywords_cache_key(self, keywords: Optional[List[str]]) -> str:
+        """Gera uma chave de cache para recomendações baseadas em keywords."""
+        if keywords is None or not keywords:
+            return "default_cold_start"
+        # Ordena as palavras-chave para consistência
+        sorted_keywords = sorted(keywords)
+        # Concatena as palavras-chave e gera um hash MD5
+        keywords_str = ",".join(sorted_keywords)
+        hash_object = hashlib.md5(keywords_str.encode('utf-8'))
+        hash_value = hash_object.hexdigest()
+        return hash_value
+
     def _get_cached_prediction(self, user_id: str) -> Optional[list[dict]]:
         """Verifica se existe uma predição válida no cache para o user_id."""
         try:
@@ -129,8 +143,31 @@ class ModelManager:
             logger.error(f"Erro ao consultar predição em cache: {e}")
             return None
 
+    def _get_cached_keywords_recommendation(self, cache_key: str) -> Optional[list[dict]]:
+        """Verifica se existe uma recomendação válida no cache para a chave baseada em keywords."""
+        try:
+            with self.db_connection.cursor() as cursor:
+                # Verifica se existe uma recomendação válida (menos de 1 hora)
+                query = """
+                    SELECT recommendations
+                    FROM keywords_recommendations_cache
+                    WHERE cache_key = %s
+                    AND timestamp >= %s
+                """
+                expiration_time = datetime.now() - timedelta(hours=1)
+                cursor.execute(query, (cache_key, expiration_time))
+                result = cursor.fetchone()
+                if result:
+                    logger.debug(f"Recomendação em cache encontrada para chave {cache_key}")
+                    return result[0]
+                logger.debug(f"Nenhuma recomendação válida em cache para chave {cache_key}")
+                return None
+        except psycopg2.Error as e:
+            logger.error(f"Erro ao consultar recomendação em cache: {e}")
+            return None
+
     def _save_prediction_to_cache(self, user_id: str, predictions: list[dict]):
-        """Salva a predição no cache do PostgreSQL."""
+        """Salva a predição no cache do PostgreSQL para user_id."""
         try:
             with self.db_connection.cursor() as cursor:
                 # Insere ou atualiza a predição
@@ -146,6 +183,25 @@ class ModelManager:
                 logger.debug(f"Predição salva no cache para user_id {user_id}")
         except psycopg2.Error as e:
             logger.error(f"Erro ao salvar predição no cache: {e}")
+
+    def _save_keywords_recommendation_to_cache(self, cache_key: str, recommendations: list[dict]):
+        """Salva a recomendação no cache do PostgreSQL para keywords."""
+        try:
+            with self.db_connection.cursor() as cursor:
+                # Insere ou atualiza a recomendação
+                query = """
+                    INSERT INTO keywords_recommendations_cache (cache_key, recommendations, timestamp)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (cache_key)
+                    DO UPDATE SET recommendations = %s, timestamp = %s
+                """
+                current_time = datetime.now()
+                cursor.execute(query,
+                               (cache_key, Json(recommendations), current_time, Json(recommendations), current_time))
+                self.db_connection.commit()
+                logger.debug(f"Recomendação salva no cache para chave {cache_key}")
+        except psycopg2.Error as e:
+            logger.error(f"Erro ao salvar recomendação no cache: {e}")
 
     def train_model(self, state: StateManager, validation_file: str, force_retrain: bool = False) -> None:
         regressor_file = os.path.join(self.cache_dir, 'regressor.pkl')
@@ -174,31 +230,48 @@ class ModelManager:
         else:
             raise HTTPException(status_code=500, detail="Falha no treinamento: dados insuficientes")
 
-    def predict(self, state: StateManager, user_id: str, number_of_records=10, keywords: Optional[List[str]] = None) -> list[dict]:
+    def predict(self, state: StateManager, user_id: str, number_of_records=10, keywords: Optional[List[str]] = None) -> \
+    list[dict]:
         if state.PREDICTOR is None:
             logger.warning("Modelo não treinado")
             raise HTTPException(status_code=400, detail="Modelo não treinado")
 
-        # Verifica se existe uma predição válida no cache
-        cached_predictions = self._get_cached_prediction(user_id)
-        if user_id and cached_predictions:
-            return cached_predictions
-
         padrao = r"/noticia/(\d{4}/\d{2}/\d{2})/"
         start_time = time.time()
-        if user_id not in state.USER_PROFILES:
-            logger.info(f"Usuário {user_id} não encontrado; aplicando cold-start. Palavras chave: {keywords}")
+
+        # Verifica se o usuário está nos perfis para decidir o tipo de cache a usar
+        if user_id in state.USER_PROFILES:
+            # Usuário conhecido: usa o user_id como chave de cache
+            cached_predictions = self._get_cached_prediction(user_id)
+            if cached_predictions:
+                logger.info(
+                    f"Predições recuperadas do cache para user_id {user_id} em {time.time() - start_time:.2f} segundos")
+                return cached_predictions
+
+            # Gera predições personalizadas para usuários conhecidos
+            predictions = state.PREDICTOR.predict(user_id, number_of_records)
+            # Salva a predição no cache
+            self._save_prediction_to_cache(user_id, predictions)
+        else:
+            # Usuário não encontrado: cold start com base em keywords
+            # Gera uma chave de cache baseada nas keywords
+            cache_key = self._generate_keywords_cache_key(keywords)
+            cached_recommendations = self._get_cached_keywords_recommendation(cache_key)
+            if cached_recommendations:
+                logger.info(
+                    f"Recomendações recuperadas do cache para keywords (chave: {cache_key}) em {time.time() - start_time:.2f} segundos")
+                return cached_recommendations
+
+            # Gera recomendações via cold start
+            logger.info(f"Usuário {user_id} não encontrado; aplicando cold-start. Palavras-chave: {keywords}")
             popular_news = self.trainer.handle_cold_start(state.NOTICIAS, keywords)
             predictions = [{
                 "page": page,
                 "title": state.NOTICIAS[state.NOTICIAS['page'] == page]['title'].iloc[0],
                 "link": state.NOTICIAS[state.NOTICIAS['page'] == page]['url'].iloc[0],
             } for page in popular_news]
-        else:
-            predictions = state.PREDICTOR.predict(user_id, number_of_records)
-
-        # Salva a predição no cache
-        self._save_prediction_to_cache(user_id, predictions)
+            # Salva a recomendação no cache para keywords
+            self._save_keywords_recommendation_to_cache(cache_key, predictions)
 
         elapsed = time.time() - start_time
         logger.info(f"Predições geradas para {user_id} em {elapsed:.2f} segundos")
